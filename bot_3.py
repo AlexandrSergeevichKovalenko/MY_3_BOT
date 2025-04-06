@@ -23,6 +23,7 @@ from telegram.error import TelegramError
 from telegram.helpers import escape_markdown
 import anthropic
 from anthropic import AsyncAnthropic
+from telegram.error import TimedOut, BadRequest
 
 
 from google.cloud import texttospeech
@@ -352,7 +353,7 @@ async def log_all_messages(update: Update, context: CallbackContext):
 # Функция для добавления в словарь всех id Сообщений которые потом я буду удалять, Это служебные сообщения вспомогательные
 def add_service_msg_id(context, message_id):
     context.user_data.setdefault("service_message_ids", []).append(message_id)
-
+    print(f"DEBUG: Добавлен message_id: {message_id}, текущий список: {context.user_data['service_message_ids']}")
 
 
 #Имитация набора текста с typing-индикатором
@@ -745,10 +746,31 @@ async def handle_user_message(update: Update, context: CallbackContext):
         await handle_button_click(update, context)
 
 
+async def delete_message_with_retry(bot, chat_id, message_id, retries=3, delay=2):
+    for attempt in range(retries):
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            print(f"DEBUG: Успешно удалено сообщение {message_id}")
+            return
+        except TimedOut as e:
+            print(f"❌ Таймаут при удалении сообщения {message_id} (попытка {attempt + 1}/{retries}): {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
+        except BadRequest as e:
+            print(f"❌ Ошибка Telegram при удалении сообщения {message_id}: {e}")
+            return  # Сообщение не существует или уже удалено
+        except Exception as e:
+            print(f"❌ Неизвестная ошибка при удалении сообщения {message_id}: {e}")
+            return
+    print(f"❌ Не удалось удалить сообщение {message_id} после {retries} попыток")
+
 
 async def done(update: Update, context: CallbackContext):
     user = update.message.from_user
     user_id = user.id
+
+    message_ids = context.user_data.get("service_message_ids", []).copy()  # Создаём копию списка
+    print(f"DEBUG: message_ids перед удалением: {message_ids}")    
 
     # # ✅ Даём 5 секунд на завершение записи переводов в базу данных
     # logging.info(f"⌛ Ждём 120 секунд перед завершением сессии для пользователя {user_id}...")
@@ -822,34 +844,28 @@ async def done(update: Update, context: CallbackContext):
         WHERE user_id = %s AND session_id = %s;
         """,(user_id, session_id))
     final_translated_count = cursor.fetchone()[0]
+    
     # получаем все id Служебных сообщений которые мы собирали в словарь под ключом service_message_ids для их удаления
     message_ids = context.user_data.get("service_message_ids", [])
-    
+    print(f"DEBUG: message_ids перед удалением: {message_ids}")
+
     if final_translated_count < total_sentences:
         msg_2 = await update.message.reply_text(
             f"⚠️ Вы перевели {final_translated_count} из {total_sentences} предложений.\n"
             "Перевод завершён, но не все предложения переведены! Это повлияет на ваш итоговый балл."           
         )
-        add_service_msg_id(context, msg_2.message_id)
         
-        await asyncio.sleep(15)
-        
-        for message_id in message_ids:
-            try:
-                await context.bot.delete_message(chat_id=update.effective_chat.id, message_id = message_id)
-            except Exception as e:
-                print(f"❌ Не удалось удалить сообщение {message_id}: {e}")
     else:
         msg_2 = await update.message.reply_text("✅ **Вы успешно завершили перевод! Все предложения этой сессии переведены.**")
-        add_service_msg_id(context, msg_2.message_id)
     
-        await asyncio.sleep(15)
-        for message_id in message_ids:
-            try:
-                await context.bot.delete_message(chat_id=update.effective_chat.id, message_id = message_id)
-            except Exception as e:
-                print(f"❌ Не удалось удалить сообщение {message_id}: {e}")
+    add_service_msg_id(context, msg_2.message_id)
+    await asyncio.sleep(15)
 
+    print(f"DEBUG: Удаляем сообщения: {message_ids}")
+    for message_id in message_ids:
+        await delete_message_with_retry(context.bot, update.effective_chat.id, message_id)
+
+    print(f"DEBUG: Сбрасываем service_message_ids. Текущий список: {context.user_data['service_message_ids']}")
     context.user_data["service_message_ids"] = []
 
     cursor.close()
@@ -875,6 +891,9 @@ async def choose_topic(update: Update, context: CallbackContext):
     global TOPICS
     
     context.user_data.setdefault("service_message_ids", [])
+
+    message_ids = context.user_data.get("service_message_ids", [])
+    print(f"DEBUG: message_ids in choose_topic function: {message_ids}")
     
     buttons = [[InlineKeyboardButton(topic, callback_data=topic)] for topic in TOPICS]
     #example of buttons
@@ -2728,14 +2747,15 @@ def main():
         "cron",
         hour=4,
         minute=1,
-        day_of_week = "mon,tue,thu,fri,sat"
+        #day_of_week = "mon,tue,thu,fri,sat"
+        day_of_week = "mon,thu,fri"
     )
     
     scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="wed", hour=5, minute=7)
     scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="sun", hour=7, minute=9) 
     #scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="sun", hour=7, minute=7)
     
-    scheduler.add_job(lambda: run_async_job(force_finalize_sessions, CallbackContext(application=application)), "cron", hour=21, minute=59)
+    scheduler.add_job(lambda: run_async_job(force_finalize_sessions, CallbackContext(application=application)), "cron", hour=23, minute=59)
     
     scheduler.add_job(lambda: run_async_job(send_daily_summary), "cron", hour=19, minute=52)
     scheduler.add_job(lambda: run_async_job(send_weekly_summary), "cron", day_of_week="sun", hour=20, minute=20)
@@ -2743,7 +2763,7 @@ def main():
     for hour in [7,12,16]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=19, minute=56)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=7, minute=55)
 
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
