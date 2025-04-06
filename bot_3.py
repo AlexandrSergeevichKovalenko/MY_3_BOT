@@ -846,7 +846,6 @@ async def done(update: Update, context: CallbackContext):
     final_translated_count = cursor.fetchone()[0]
     
     # получаем все id Служебных сообщений которые мы собирали в словарь под ключом service_message_ids для их удаления
-    message_ids = context.user_data.get("service_message_ids", [])
     print(f"DEBUG: message_ids перед удалением: {message_ids}")
 
     if final_translated_count < total_sentences:
