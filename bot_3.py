@@ -24,6 +24,7 @@ from telegram.helpers import escape_markdown
 import anthropic
 from anthropic import AsyncAnthropic
 from telegram.error import TimedOut, BadRequest
+import tempfile
 
 
 from google.cloud import texttospeech
@@ -2559,17 +2560,36 @@ async def send_progress_report(context: CallbackContext):
     await context.bot.send_message(chat_id=BOT_GROUP_CHAT_ID_Deutsch, text=progress_report)
 
 
-
-
-
-
 async def error_handler(update, context):
     logging.error(f"❌ Ошибка в обработчике Telegram: {context.error}")
 
 
+# Глобальная переменная
+GOOGLE_CREDS_FILE_PATH = None
+
+def prepare_google_creds_file():
+    global GOOGLE_CREDS_FILE_PATH
+
+    if GOOGLE_CREDS_FILE_PATH and os.path.exists(GOOGLE_CREDS_FILE_PATH):
+        return GOOGLE_CREDS_FILE_PATH
+
+    raw_creds = os.getenv("GOOGLE_CREDS_JSON")
+    if not raw_creds:
+        raise RuntimeError("GOOGLE_CREDS_JSON is not set")
+
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as temp_key_file:
+        temp_key_file.write(raw_creds)
+        temp_key_file.flush()
+        # Когда создаё временный файл через tempfile.NamedTemporaryFile, Python возвращает объект этого файла. 
+        # У него есть атрибут .name, который содержит полный путь к этому файлу в файловой системе
+        GOOGLE_CREDS_FILE_PATH = temp_key_file.name
+
+    return GOOGLE_CREDS_FILE_PATH
+
+
 
 async def mistakes_to_voice(username, sentence_pairs):
-    key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    key_path = prepare_google_creds_file()
     if not key_path or not Path(key_path).exists():
         raise FileNotFoundError("❌ Google TTS ключ не найден или путь некорректен.")
     
@@ -2697,6 +2717,16 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
                     )
 
 
+import atexit
+
+def cleanup_creds_file():
+    global GOOGLE_CREDS_FILE_PATH
+    if GOOGLE_CREDS_FILE_PATH and os.path.exists(GOOGLE_CREDS_FILE_PATH):
+        os.remove(GOOGLE_CREDS_FILE_PATH)
+        print(f"🧹 Удалён временный ключ: {GOOGLE_CREDS_FILE_PATH}")
+
+atexit.register(cleanup_creds_file)
+
 
 
 
@@ -2762,7 +2792,7 @@ def main():
     for hour in [7,12,16]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=7, minute=55)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=13, minute=55)
 
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
