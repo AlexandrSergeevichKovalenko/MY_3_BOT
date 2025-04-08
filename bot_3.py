@@ -383,7 +383,7 @@ async def send_main_menu(update: Update, context: CallbackContext):
     #await update.message.reply_text("⏳ Обновляем меню...", reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True))
 
     # 2️⃣ Отправляем новое меню
-    await update.message.reply_text(reply_markup=reply_markup)
+    await update.message.reply_text("Используйте кнопки:", reply_markup=reply_markup)
 
 async def debug_message_handler(update: Update, context: CallbackContext):
     print(f"🔹 Получено сообщение (DEBUG): {update.message.text}")
@@ -461,7 +461,7 @@ async def check_translation_from_text(update: Update, context: CallbackContext):
 
 async def start(update: Update, context: CallbackContext):
     """Запуск бота и отправка главного меню."""
-    await update.message.reply_text("Привет! Это бот для перевода.")
+    #await update.message.reply_text("Привет! Это бот для перевода.")
     await send_main_menu(update, context)
 
 
@@ -2747,11 +2747,10 @@ def main():
     application = Application.builder().token(TELEGRAM_Deutsch_BOT_TOKEN).build()
 
     # 🔹 Добавляем обработчики команд (исправленный порядок)
-
+    application.add_handler(CommandHandler("start", start))
     # 🔥 Логирование всех сообщений (группа -1, не блокирует цепочку)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_message, block=False), group=-1)
 
-    application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_message, block=False), group=1)  # ✅ Сохраняем переводы
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_button_click, block=False), group=1)  # ✅ Обрабатываем кнопки 
     application.add_handler(CallbackQueryHandler(handle_explain_request, pattern=r"^explain:"))
