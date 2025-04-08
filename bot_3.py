@@ -2567,15 +2567,28 @@ async def error_handler(update, context):
 # Глобальная переменная
 GOOGLE_CREDS_FILE_PATH = None
 
+# ✅ # ✅ Загружаем переменные окружения из .env-файла (только при локальной разработке)
+# Это загрузит все переменные из file with name .env which was created by me в os.environ
+from dotenv import load_dotenv
+load_dotenv()
+
 def prepare_google_creds_file():
     global GOOGLE_CREDS_FILE_PATH
 
-    if GOOGLE_CREDS_FILE_PATH and os.path.exists(GOOGLE_CREDS_FILE_PATH):
+    # ✅ 1. Попробовать использовать путь к локальному .json-файлу
+    direct_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if direct_path and Path(direct_path).exists():
+        print(f"📂 Используем локальный ключ: {direct_path}")
+        GOOGLE_CREDS_FILE_PATH = direct_path
         return GOOGLE_CREDS_FILE_PATH
-
+    
+    # ✅ 2. Попробовать использовать GOOGLE_CREDS_JSON (из Railway)
+    if GOOGLE_CREDS_FILE_PATH and Path(GOOGLE_CREDS_FILE_PATH).exists():
+        return GOOGLE_CREDS_FILE_PATH
+    
     raw_creds = os.getenv("GOOGLE_CREDS_JSON")
     if not raw_creds:
-        raise RuntimeError("GOOGLE_CREDS_JSON is not set")
+        raise RuntimeError("❌ Не найдены переменные GOOGLE_APPLICATION_CREDENTIALS или GOOGLE_CREDS_JSON.")
 
     with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as temp_key_file:
         temp_key_file.write(raw_creds)
@@ -2583,16 +2596,15 @@ def prepare_google_creds_file():
         # Когда создаё временный файл через tempfile.NamedTemporaryFile, Python возвращает объект этого файла. 
         # У него есть атрибут .name, который содержит полный путь к этому файлу в файловой системе
         GOOGLE_CREDS_FILE_PATH = temp_key_file.name
+        print(f"🧪 Сгенерирован временный ключ: {GOOGLE_CREDS_FILE_PATH}")
 
     return GOOGLE_CREDS_FILE_PATH
 
 
 
 async def mistakes_to_voice(username, sentence_pairs):
+    #global GOOGLE_CREDS_FILE_PATH
     key_path = prepare_google_creds_file()
-    if not key_path or not Path(key_path).exists():
-        raise FileNotFoundError("❌ Google TTS ключ не найден или путь некорректен.")
-    
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
 
     client = texttospeech.TextToSpeechClient()
@@ -2792,7 +2804,7 @@ def main():
     for hour in [7,12,16]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=12, minute=25)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=13, minute=45)
 
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
