@@ -2720,7 +2720,7 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
                                 caption=f"🎧 Ошибки пользователя @{username} за вчерашний день."
                             )
                         print(f"⏱ Отправка заняла {asyncio.get_running_loop().time() - start:.2f} секунд")
-                        asyncio.sleep(5)
+                        await asyncio.sleep(5)
                     except Exception as e:
                         print(f"❌ Ошибка при отправке аудиофайла для @{username}: {e}")
 
@@ -2734,7 +2734,7 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
                         chat_id=BOT_GROUP_CHAT_ID_Deutsch,
                         text=f"❌ Для пользователя @{username} не найден аудиофайл."
                     )
-                    asyncio.sleep(5)
+                    await asyncio.sleep(5)
 
 
 import atexit
