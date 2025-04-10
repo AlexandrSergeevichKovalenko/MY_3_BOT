@@ -6,7 +6,7 @@ import psycopg2
 import datetime
 from datetime import datetime, time
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, TypeHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, TypeHandler, Defaults
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
@@ -17,7 +17,6 @@ import re
 import requests
 import aiohttp
 from telegram.ext import CallbackContext
-import aiohttp
 from googleapiclient.discovery import build
 from telegram.error import TelegramError
 from telegram.helpers import escape_markdown
@@ -2699,7 +2698,7 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
 
                             # ✅ Ограничиваем до нужного количества предложений (например, 5)
                             
-                            if mistake_sentences == max_to_collect:
+                            if len(mistake_sentences) == max_to_collect:
                                 break
 
                 sentence_pairs = [(origin_sentence, correct_transl) for correct_transl, origin_sentence in original_by_id.items()]
@@ -2709,14 +2708,22 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
                     print(f"❌ Ошибка синтеза речи для {username}: {e}")
                     continue
                 audio_path = Path(f"{username}.mp3")
+                print(f"📦 Размер файла: {audio_path.stat().st_size / 1024 / 1024:.2f} MB ")
 
                 if audio_path.exists():
-                    with audio_path.open("rb") as audio_file:
-                        await context.bot.send_audio(
-                            chat_id=BOT_GROUP_CHAT_ID_Deutsch, 
-                            audio=audio_file,
-                            caption=f"🎧 Ошибки пользователя @{username} за вчерашний день."
-                        )
+                    try:
+                        start = asyncio.get_running_loop().time()
+                        with audio_path.open("rb") as audio_file:
+                            await context.bot.send_audio(
+                                chat_id=BOT_GROUP_CHAT_ID_Deutsch, 
+                                audio=audio_file,
+                                caption=f"🎧 Ошибки пользователя @{username} за вчерашний день."
+                            )
+                        print(f"⏱ Отправка заняла {asyncio.get_running_loop().time() - start:.2f} секунд")
+                        asyncio.sleep(5)
+                    except Exception as e:
+                        print(f"❌ Ошибка при отправке аудиофайла для @{username}: {e}")
+
                     try:    
                         audio_path.unlink()
                     except FileNotFoundError:
@@ -2727,6 +2734,7 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
                         chat_id=BOT_GROUP_CHAT_ID_Deutsch,
                         text=f"❌ Для пользователя @{username} не найден аудиофайл."
                     )
+                    asyncio.sleep(5)
 
 
 import atexit
@@ -2744,7 +2752,10 @@ atexit.register(cleanup_creds_file)
 
 def main():
     global application
+
+    #defaults = Defaults(timeout=60)  # увеличили таймаут до 60 секунд
     application = Application.builder().token(TELEGRAM_Deutsch_BOT_TOKEN).build()
+    application.bot.request.timeout = 60
 
     # 🔹 Добавляем обработчики команд (исправленный порядок)
     application.add_handler(CommandHandler("start", start))
@@ -2803,7 +2814,7 @@ def main():
     for hour in [7,12,16]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=8, minute=45)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=14, minute=45)
 
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
