@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 import openai
 from openai import OpenAI
@@ -44,7 +45,14 @@ success=load_dotenv(dotenv_path=Path(__file__).parent/".env")
 
 
 # === Логирование ===
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+# Настраиваем логгер глобально
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout)  # вывод в stdout
+    ]
+)
 
 application = None
 
@@ -2581,8 +2589,9 @@ def prepare_google_creds_file():
     direct_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     print(f"📢 direct_path (print): {direct_path}")
     logging.info(f"direct_path: {direct_path}")
-    if direct_path and Path(direct_path).exists():
-        print(f"📂 Используем локальный ключ: {direct_path}")
+    if direct_path:
+        print("🌐 Переменная найдена:", direct_path)
+        print("🧱 Существует ли файл?", Path(direct_path).exists())
         GOOGLE_CREDS_FILE_PATH = direct_path
         return GOOGLE_CREDS_FILE_PATH
     
@@ -2819,12 +2828,12 @@ def main():
     for hour in [7,12,16]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=12, minute=40)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=15, minute=19)
+
 
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
     application.run_polling()
-
 
 
 
