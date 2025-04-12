@@ -2751,15 +2751,15 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
                     await asyncio.sleep(5)
 
 
-import atexit
+# import atexit
 
-def cleanup_creds_file():
-    global GOOGLE_CREDS_FILE_PATH
-    if GOOGLE_CREDS_FILE_PATH and os.path.exists(GOOGLE_CREDS_FILE_PATH):
-        os.remove(GOOGLE_CREDS_FILE_PATH)
-        print(f"🧹 Удалён временный ключ: {GOOGLE_CREDS_FILE_PATH}")
+# def cleanup_creds_file():
+#     global GOOGLE_CREDS_FILE_PATH
+#     if GOOGLE_CREDS_FILE_PATH and os.path.exists(GOOGLE_CREDS_FILE_PATH):
+#         os.remove(GOOGLE_CREDS_FILE_PATH)
+#         print(f"🧹 Удалён временный ключ: {GOOGLE_CREDS_FILE_PATH}")
 
-atexit.register(cleanup_creds_file)
+# atexit.register(cleanup_creds_file)
 
 
 
@@ -2822,13 +2822,13 @@ def main():
     
     scheduler.add_job(lambda: run_async_job(force_finalize_sessions, CallbackContext(application=application)), "cron", hour=21, minute=59)
     
-    scheduler.add_job(lambda: run_async_job(send_daily_summary), "cron", hour=19, minute=52)
-    scheduler.add_job(lambda: run_async_job(send_weekly_summary), "cron", day_of_week="sun", hour=20, minute=20)
+    scheduler.add_job(lambda: run_async_job(send_daily_summary), "cron", hour=20, minute=55)
+    scheduler.add_job(lambda: run_async_job(send_weekly_summary), "cron", day_of_week="sun", hour=20, minute=57)
 
     for hour in [7,12,16]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=15, minute=19)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=8, minute=8)
 
 
     scheduler.start()
