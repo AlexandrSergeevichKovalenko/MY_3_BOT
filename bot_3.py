@@ -32,12 +32,19 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydub import AudioSegment
 import io
-load_dotenv() # Загружаем переменные из .env
+
+load_dotenv(dotenv_path=Path(__file__).parent/".env") # Загружаем переменные из .env
 # Ты кладёшь GOOGLE_APPLICATION_CREDENTIALS=/path/... в .env.
 # load_dotenv() загружает .env и делает вид, что это переменные окружения.
 # os.getenv(...) читает эти значения.
 # Ты вручную регистрируешь это в переменных окружения процесса
 # os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+success=load_dotenv(dotenv_path=Path(__file__).parent/".env")
+
+
+
+# === Логирование ===
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 application = None
 
@@ -489,10 +496,6 @@ async def start(update: Update, context: CallbackContext):
 #             await asyncio.sleep(20)  # Telegram рекомендует 20 секунд задержки при Flood Control
 
 #         await asyncio.sleep(5)  # ✅ Повторяем цикл каждые 5 секунд
-
-
-# === Логирование ===
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 async def log_message(update: Update, context: CallbackContext):
     """логируются (сохраняются) все сообщения пользователей в базе данных"""
@@ -2568,14 +2571,16 @@ GOOGLE_CREDS_FILE_PATH = None
 
 # ✅ # ✅ Загружаем переменные окружения из .env-файла (только при локальной разработке)
 # Это загрузит все переменные из file with name .env which was created by me в os.environ
-from dotenv import load_dotenv
-load_dotenv()
-
 def prepare_google_creds_file():
+    global success
+    print("✅ .env loaded?", success)
+    print("🧪 Функция prepare_google_creds_file вызвана")
     global GOOGLE_CREDS_FILE_PATH
 
     # ✅ 1. Попробовать использовать путь к локальному .json-файлу
     direct_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    print(f"📢 direct_path (print): {direct_path}")
+    logging.info(f"direct_path: {direct_path}")
     if direct_path and Path(direct_path).exists():
         print(f"📂 Используем локальный ключ: {direct_path}")
         GOOGLE_CREDS_FILE_PATH = direct_path
@@ -2814,7 +2819,7 @@ def main():
     for hour in [7,12,16]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=8, minute=5)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=12, minute=40)
 
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
