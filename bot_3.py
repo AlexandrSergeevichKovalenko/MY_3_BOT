@@ -2053,7 +2053,7 @@ def search_youtube_videous(topic, max_results=5):
 
         # ✅ Формируем ссылки в Telegram-формате
         preferred_videos = [
-            f"[▶️ {escape_markdown_v2(video['title'])}](https://www.youtube.com/watch?v={video['video_id']})"
+            f"[▶️ {escape_markdown_v2(video['title'])}]({escape_markdown_v2('https://www.youtube.com/watch?v=' + video['video_id'])})"
             for video in top_videos
         ]
 
