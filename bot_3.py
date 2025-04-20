@@ -1111,16 +1111,49 @@ async def check_translation(original_text, user_translation, update: Update, con
     **User's translation (German):** "{user_translation}"
 
     **Your task:**
-    1. **Give a score from 0 to 100**. Use these grading guidelines:
-    - Start from 100 points.
-    - Subtract points based on the severity and number of grammatical and vocabulary errors.
-    - Penalize most heavily for grammatical accuracy (especially incorrect verb conjugation, case usage, word order).
-    - Deduct:
-        - 1–5 points: minor word choice or stylistic issues that don't change meaning.
-        - 6–15 points: grammar or case errors that make the sentence slightly awkward or unclear.
-        - 16–30 points: major grammar or vocabulary errors that affect understanding.
-        - 31–50 points: multiple severe mistakes or misunderstanding of key parts.
-        - 51–100 points: completely wrong meaning or incomprehensible translation.
+    1. Evaluate of user's translation:
+    Start from **100 points**. Subtract points **only according to the severity and number of objective errors**, using the rules below. Your evaluation must be **objective, strict, and consistent**.
+    You must **never forgive** significant mistakes or justify them as “acceptable variants” if they alter the grammatical structure or intended meaning.
+    ---
+    ### ❗ Rules for Point Deductions:
+
+    #### ✅ Acceptable (No deductions):
+    - Minor stylistic alternatives that preserve both meaning and grammar.
+    - Word order variations that are grammatically correct and natural in German.
+
+    #### ⚠️ Minor Mistakes (Deduct 1–5 points per issue):
+    - Minor stylistic inaccuracy or redundancy.
+    - Slightly awkward but correct grammar or vocabulary.
+    - Misspellings that do not alter meaning (e.g., "Biodiversifität").
+
+    #### ❌ Moderate Mistakes (Deduct 6–15 points per issue):
+    - Incorrect word order that creates confusion.
+    - Incorrect article, case, or gender if it does not alter the core meaning.
+    - Incorrect verb tense or mode (e.g., indicative instead of subjunctive).
+    - Poorly chosen synonyms that slightly alter tone or clarity.
+
+    #### 🚫 Severe Mistakes (Deduct 16–30 points per issue):
+    - Grammatical errors that distort meaning (e.g., wrong verb endings, noun cases).
+    - Changing the grammatical structure (e.g., turning passive to active).
+    - Wrong use of subjunctive, Konjunktiv I/II.
+    - Major vocabulary errors (wrong term, false friend, or ambiguity).
+
+    #### ⛔ Critical Errors (Deduct 31–50 points per issue):
+    - Misunderstanding or misrepresenting the sentence.
+    - Multiple major grammar or vocabulary errors.
+    - Sentence becomes difficult to understand or misleading.
+
+    #### 🛑 Fatal Errors (Deduct 51–100 points):
+    - Sentence is incomprehensible, nonsense, or completely unrelated.
+    - Completely wrong grammar structure or wrong meaning.
+    - Empty translation.
+    ---
+    ### 🚫 Additional Evaluation Rules:
+    - **NEVER give more than 85 points** if there is a grammar mistake affecting verb, case, or word order.
+    - **NEVER give more than 70 points** if two or more major grammar or meaning errors are present.
+    - Do NOT praise the translation if it violates grammatical structure or meaning.
+    - Your tone must be **strict and academic**.
+
     - Do NOT assign a score of 0 unless the translation is completely unrelated or empty.
 
     2. **Identify all mistake categories** (you may select multiple categories if needed, but STRICTLY from enumeration below):  
@@ -2871,7 +2904,7 @@ def main():
         day_of_week = "mon,thu,fri"
     )
     
-    scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="wed", hour=5, minute=7)
+    scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="wed", hour=14, minute=14)
     scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="sun", hour=7, minute=9) 
     #scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="sun", hour=7, minute=7)
     
@@ -2883,7 +2916,7 @@ def main():
     for hour in [7,12,16]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=8, minute=8)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=5, minute=8)
 
 
     scheduler.start()
