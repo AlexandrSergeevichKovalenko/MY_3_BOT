@@ -175,21 +175,24 @@ When it started getting dark, he said goodbye to the neighbor's cat and ran into
 After doing his homework, he went to bed thinking about tomorrow.
 """, 
 "send_me_analytics_and_recommend_me": """
-You are an expert German grammar tutor specializing in error analysis and targeted learning recommendations. 
-Your role is to analyze user mistakes which you will receive in user_message in a variable:
+You are an expert German grammar tutor specializing in error analysis and concise learning recommendations. 
+Your role is to analyze user mistakes provided in the user message as:
 - **Mistake category:** ...
 - **First subcategory:** ...
 - **Second subcategory:** ...
 
-Based on provided error categories and subcategories, then identify and output a single, precise German grammar topic (e.g., "Plusquamperfekt") 
-for the user to study. 
-You act as a concise, knowledgeable guide, ensuring the recommended topic directly addresses the user’s most critical grammar weaknesses 
-while adhering strictly to this instruction format and requirements.
+These represent the most frequent errors made by the user over a period of time. 
+Based on the provided categories and subcategories, identify and output a single, precise German grammar topic (e.g., "Plusquamperfekt" or "Modal verb conjugation") for the user to study. 
+Ensure the topic:
+- Directly addresses the user’s most critical grammar weakness.
+- Is clear and searchable for finding relevant YouTube tutorials.
+- Prioritizes the first subcategory if categories conflict.
 
-**Provide only one word which describes the user's mistake the best. Give back inly one word or short phrase.**
+If the input is unclear or invalid, output "Deutsch mit Rieke" to recommend a recent video from the "Deutsch mit Rieke" YouTube channel for general grammar improvement. 
+Provide only one word or a short phrase (up to 4 words) as the recommendation.
 """
 }
-
+ 
 
 # === Логирование ===
 # Настраиваем логгер глобально
@@ -1142,29 +1145,6 @@ async def generate_sentences(user_id, num_sentances, context: CallbackContext = 
     Number of sentences: {num_sentances}. Topic: "{chosen_topic}".
     """
         
-    # else:
-    #     prompt = f"""
-    #     Придумай {num_sentances} предложений уровня B2-C1 на **русском языке** для перевода на **немецкий**.
-            
-    #     **Требования:**
-    #     - Используй **пассивный залог** и **Konjunktiv II** хотя бы в одном предложении.
-    #     - Тематики: **глагол "lassen"**, **Futur II**, **субъективное значение модальных глаголов**, **пассивный залог во всех временах и альтернативные конструкции**, **существительные с управлением**, **неопределённые местоимения**, **прилагательные с управлением**, **модальные частицы**, **порядок слов в предложениях с обстоятельствами времени, причины, образа действия, места**, **все типы придаточных предложений**.
-    #     - Используй **Konjunktiv I** для выражения косвенной речи.
-    #     - Включай **двойные союзы** (entweder...oder, zwar...aber, nicht nur...sondern auch, sowohl ...als auch, weder...noch, je...desto).
-    #     - Добавляй **устойчивые глагольно-именные словосочетания** (например, привести к успеху, принять участие, оказать помощь, произвести впечатление, осуществить контроль, совершить ошибку, иметь значение, принять во внимание).
-    #     - Каждое предложение должно быть **на отдельной строке**.
-    #     - **НЕ добавляй перевод!** Только оригинальные русские предложения.
-    #     - Предложения должны содержать часто употребительную в повседневной жизни лексику(бизнес медицина, Хобби, Свободное время, Учёба, Работа, Путешествия) и грамматику.
-
-    #     **Пример формата вывода:**
-    #     Было бы лучше, если бы он согласился на это предложение.
-    #     Нам сказали, что проект будет завершен через неделю.
-    #     Если бы он мог говорить на немецком, он бы легко нашел работу.
-    #     Сделав работу он пошёл отдыхать.
-    #     Зная о вежливости немцев я выбрал вежливую формулировку.
-    #     Не зная его лично, его поступок невозможно понять.
-    #     Учитывая правила вежливости, он говорил сдержанно.
-    #     """
     #Генерация с помощью GPT     
     for attempt in range(5): # Пробуем до 5 раз при ошибке
         try:
