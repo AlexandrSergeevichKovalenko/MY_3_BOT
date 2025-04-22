@@ -3053,8 +3053,8 @@ def main():
 
     # ✅ Добавляем задачу в `scheduler` ДЛЯ УТРА
     print("📌 Добавляем задачу в scheduler...")
-    scheduler.add_job(lambda: run_async_job(send_morning_reminder,CallbackContext(application=application)),"cron", hour=6, minute=30)
-    scheduler.add_job(lambda: run_async_job(send_morning_reminder,CallbackContext(application=application)),"cron", hour=15, minute=30)
+    scheduler.add_job(lambda: run_async_job(send_morning_reminder,CallbackContext(application=application)),"cron", hour=5, minute=5)
+    scheduler.add_job(lambda: run_async_job(send_morning_reminder,CallbackContext(application=application)),"cron", hour=14, minute=5)
 
     scheduler.add_job(
         lambda: run_async_job(send_german_news, CallbackContext(application=application)), 
@@ -3074,10 +3074,10 @@ def main():
     scheduler.add_job(lambda: run_async_job(send_daily_summary), "cron", hour=20, minute=52)
     scheduler.add_job(lambda: run_async_job(send_weekly_summary), "cron", day_of_week="sun", hour=20, minute=55)
 
-    for hour in [7,12,16]:
+    for hour in [8,13,17]:
         scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
 
-    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=5, minute=7)
+    scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=5, minute=10)
 
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
