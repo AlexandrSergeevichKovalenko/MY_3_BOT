@@ -1000,8 +1000,8 @@ async def done(update: Update, context: CallbackContext):
     total_sentences = cursor.fetchone()[0]
     logging.info(f"🔄 Ожидаем записи всех переводов пользователя {user_id}. Всего предложений: {total_sentences}")
 
-    # ⏳ Ждём до 120 секунд, пока все переводы не будут записаны
-    max_retries = 120
+    # ⏳ Ждём до 150 секунд, пока все переводы не будут записаны
+    max_retries = 150
     for i in range(0, max_retries, 5):
         cursor.execute("""
             SELECT COUNT(*) FROM deutsch_translations
