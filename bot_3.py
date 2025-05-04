@@ -117,22 +117,22 @@ system_message = {
     B2-Level Appropriateness: Deduct 5–10 points for overly complex/simple vocabulary or grammar not suited for B2 learners.
 
 
-    2. **Identify all mistake categories** (you may select multiple categories if needed, but STRICTLY from enumeration below):  
-    - Nouns, Cases, Verbs, Tenses, Adjectives, Adverbs, Conjunctions, Prepositions, Moods, Word Order, Other mistake  
+    2. **Identify all mistake categories**  
+    (you may select multiple categories if needed, but STRICTLY from the enumeration below.  
+    Return them as a single comma-separated string, without explanations or formatting):
+    Nouns, Cases, Verbs, Tenses, Adjectives, Adverbs, Conjunctions, Prepositions, Moods, Word Order, Other mistake
 
-    3. **Identify all specific mistake subcategories** (you may select multiple subcategories if needed, but STRICTLY from enumeration below):  
-
-    **Fixed mistake subcategories:**  
-    - **Nouns:** Gendered Articles, Pluralization, Compound Nouns, Declension Errors  
-    - **Cases:** Nominative, Accusative, Dative, Genitive, Akkusativ + Preposition, Dative + Preposition, Genitive + Preposition  
-    - **Verbs:** Placement, Conjugation, Weak Verbs, Strong Verbs, Mixed Verbs, Separable Verbs, Reflexive Verbs, Auxiliary Verbs, Modal Verbs, Verb Placement in Subordinate Clause  
-    - **Tenses:** Present, Past, Simple Past, Present Perfect, Past Perfect, Future, Future 1, Future 2, Plusquamperfekt Passive, Futur 1 Passive, Futur 2 Passive  
-    - **Adjectives:** Endings, Weak Declension, Strong Declension, Mixed Declension, Placement, Comparative, Superlative, Incorrect Adjective Case Agreement  
-    - **Adverbs:** Placement, Multiple Adverbs, Incorrect Adverb Usage  
-    - **Conjunctions:** Coordinating, Subordinating, Incorrect Use of Conjunctions  
-    - **Prepositions:** Accusative, Dative, Genitive, Two-way, Incorrect Preposition Usage  
-    - **Moods:** Indicative, Declarative, Interrogative, Imperative, Subjunctive 1, Subjunctive 2  
-    - **Word Order:** Standard, Inverted, Verb-Second Rule, Position of Negation, Incorrect Order in Subordinate Clause, Incorrect Order with Modal Verb  
+    3. **Identify all specific mistake subcategories**(you may select multiple subcategories if needed, but STRICTLY from the list below. Return them as a single comma-separated string, without grouping or explanations):
+    Gendered Articles, Pluralization, Compound Nouns, Declension Errors,  
+    Nominative, Accusative, Dative, Genitive, Akkusativ + Preposition, Dative + Preposition, Genitive + Preposition,  
+    Placement, Conjugation, Weak Verbs, Strong Verbs, Mixed Verbs, Separable Verbs, Reflexive Verbs, Auxiliary Verbs, Modal Verbs, Verb Placement in Subordinate Clause,  
+    Present, Past, Simple Past, Present Perfect, Past Perfect, Future, Future 1, Future 2, Plusquamperfekt Passive, Futur 1 Passive, Futur 2 Passive,  
+    Endings, Weak Declension, Strong Declension, Mixed Declension, Comparative, Superlative, Incorrect Adjective Case Agreement,  
+    Multiple Adverbs, Incorrect Adverb Usage,  
+    Coordinating, Subordinating, Incorrect Use of Conjunctions,  
+    Accusative, Dative, Genitive, Two-way, Incorrect Preposition Usage,  
+    Indicative, Declarative, Interrogative, Imperative, Subjunctive 1, Subjunctive 2,  
+    Standard, Inverted, Verb-Second Rule, Position of Negation, Incorrect Order in Subordinate Clause, Incorrect Order with Modal Verb
 
     4. **Provide the correct translation.**  
 
@@ -553,7 +553,7 @@ def initialise_database():
                         correct_translation TEXT NOT NULL,
 
                         -- ✅ Уникальный ключ для предотвращения дубликатов
-                        CONSTRAINT for_mistakes_table UNIQUE (user_id, sentence, main_category, sub_category)
+                        CONSTRAINT table_for_mistakes UNIQUE (user_id, sentence, main_category, sub_category)
                     );
 
             """)
