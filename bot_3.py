@@ -888,7 +888,7 @@ async def log_message(update: Update, context: CallbackContext):
     cursor = conn.cursor()
     try: 
         cursor.execute("""
-            INSERT INTO messages_deepseek (user_id, username, message)
+            INSERT INTO bt_3_messages (user_id, username, message)
             VALUES(%s, %s, %s)
             ON CONFLICT (user_id)
             DO UPDATE SET timestamp = NOW();
@@ -970,7 +970,7 @@ async def letsgo(update: Update, context: CallbackContext):
 
     # Проверяем, не запустил ли уже пользователь перевод (но только за СЕГОДНЯ!)
     cursor.execute("""
-        SELECT user_id FROM user_progress_deepseek
+        SELECT user_id FROM bt_3_user_progress
         WHERE user_id = %s AND start_time::date = CURRENT_DATE AND completed = FALSE;
         """, (user_id, ))
     active_session = cursor.fetchone()
@@ -987,7 +987,7 @@ async def letsgo(update: Update, context: CallbackContext):
 
     # ✅ **Автоматически завершаем вчерашние сессии**
     cursor.execute("""
-        UPDATE user_progress_deepseek
+        UPDATE bt_3_user_progress
         SET end_time = NOW(), completed = TRUE
         WHERE user_id = %s AND start_time::date < CURRENT_DATE AND completed = FALSE;
     """, (user_id,))
@@ -997,7 +997,7 @@ async def letsgo(update: Update, context: CallbackContext):
 
     # ✅ **Создаём новую запись в `user_progress`, НЕ ЗАТИРАЯ старые сессии и получаем `session_id`****
     cursor.execute("""
-        INSERT INTO user_progress_deepseek (session_id, user_id, username, start_time, completed) 
+        INSERT INTO bt_3_user_progress (session_id, user_id, username, start_time, completed) 
         VALUES (%s, %s, %s, NOW(), FALSE);
     """, (session_id, user_id, username))
     
@@ -1017,7 +1017,7 @@ async def letsgo(update: Update, context: CallbackContext):
 
     # Определяем стартовый индекс (если пользователь делал /getmore)
     cursor.execute("""
-        SELECT COUNT(*) FROM daily_sentences_deepseek WHERE date = CURRENT_DATE AND user_id = %s;
+        SELECT COUNT(*) FROM bt_3_daily_sentences WHERE date = CURRENT_DATE AND user_id = %s;
     """, (user_id,))
     last_index = cursor.fetchone()[0]
 
@@ -1036,7 +1036,7 @@ async def letsgo(update: Update, context: CallbackContext):
         # ✅ Проверяем, есть ли уже предложение с таким текстом
         cursor.execute("""
             SELECT id_for_mistake_table
-            FROM daily_sentences_deepseek
+            FROM bt_3_daily_sentences
             WHERE sentence = %s
             LIMIT 1;
         """, (sentence, ))
@@ -1048,7 +1048,7 @@ async def letsgo(update: Update, context: CallbackContext):
         else:
             # ✅ Если текста нет — получаем максимальный ID и создаём новый
             cursor.execute("""
-                SELECT MAX(id_for_mistake_table) FROM daily_sentences_deepseek;
+                SELECT MAX(id_for_mistake_table) FROM bt_3_daily_sentences;
             """)
             result = cursor.fetchone()
             max_id = result[0] if result and result[0] is not None else 0
@@ -1057,7 +1057,7 @@ async def letsgo(update: Update, context: CallbackContext):
 
         # ✅ Вставляем предложение в таблицу с id_for_mistake_table
         cursor.execute("""
-            INSERT INTO daily_sentences_deepseek (date, sentence, unique_id, user_id, session_id, id_for_mistake_table)
+            INSERT INTO bt_3_daily_sentences (date, sentence, unique_id, user_id, session_id, id_for_mistake_table)
             VALUES (CURRENT_DATE, %s, %s, %s, %s, %s);
         """, (sentence, i, user_id, session_id, id_for_mistake_table))
         
@@ -1162,7 +1162,7 @@ async def done(update: Update, context: CallbackContext):
     # 🔹 Проверяем, есть ли у пользователя активная сессия
     cursor.execute("""
         SELECT session_id
-        FROM user_progress_deepseek 
+        FROM bt_3_user_progress 
         WHERE user_id = %s AND completed = FALSE
         ORDER BY start_time DESC
         LIMIT 1;""", 
@@ -1183,7 +1183,7 @@ async def done(update: Update, context: CallbackContext):
     # 📊 Получаем общее количество предложений
     cursor.execute("""
         SELECT COUNT(*) 
-        FROM daily_sentences_deepseek 
+        FROM bt_3_daily_sentences 
         WHERE user_id = %s AND session_id = %s;
         """, (user_id, session_id))
     
@@ -1201,7 +1201,7 @@ async def done(update: Update, context: CallbackContext):
     # Получаем количество записанных переводов в базе
     cursor.execute("""
         SELECT COUNT(*) 
-        FROM translations_deepseek 
+        FROM bt_3_translations 
         WHERE user_id = %s AND session_id = %s;
         """, (user_id, session_id))
     translated_count = cursor.fetchone()[0]
@@ -1226,7 +1226,7 @@ async def done(update: Update, context: CallbackContext):
     while translated_count < pending_translations_count and attempt < max_attempts:
         cursor.execute("""
             SELECT COUNT(*) 
-            FROM translations_deepseek 
+            FROM bt_3_translations 
             WHERE user_id = %s AND session_id = %s;
             """, (user_id, session_id))
         translated_count = cursor.fetchone()[0]
@@ -1247,7 +1247,7 @@ async def done(update: Update, context: CallbackContext):
 
     # Завершаем сессию
     cursor.execute("""
-        UPDATE user_progress_deepseek
+        UPDATE bt_3_user_progress
         SET end_time = NOW(), completed = TRUE
         WHERE user_id = %s AND session_id = %s AND completed = FALSE;
         """, (user_id, session_id))
@@ -1449,7 +1449,7 @@ async def generate_sentences(user_id, num_sentances, context: CallbackContext = 
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT sentence FROM spare_sentences_deepseek ORDER BY RANDOM() LIMIT 7;""")
+        SELECT sentence FROM bt_3_spare_sentences ORDER BY RANDOM() LIMIT 7;""")
     spare_rows = cursor.fetchall()
 
     cursor.close()
@@ -2063,12 +2063,12 @@ async def log_translation_mistake(user_id, original_text, user_translation, cate
                     # ✅ Получаем id_for_mistake_table
                     cursor.execute("""
                     SELECT id_for_mistake_table 
-                    FROM daily_sentences_deepseek
+                    FROM bt_3_daily_sentences
                     WHERE sentence=%s
                     LIMIT 1;
                 """, (original_text, )
                     )
-                    #sentence_id В нашем случае это идентификатор id_for_mistake_table Из таблицы daily_sentences_deepseek (для одинаковых предложений он одинаков) Для разных он разный.
+                    #sentence_id В нашем случае это идентификатор id_for_mistake_table Из таблицы bt_3_daily_sentences (для одинаковых предложений он одинаков) Для разных он разный.
                     # это нужно чтобы правильно Помечать предложения особенно одинаковые предложения и потом их правильно удалять из базы данных на основании этого идентификатора
                     result = cursor.fetchone()
                     sentence_id = result[0] if result else None
@@ -2080,13 +2080,13 @@ async def log_translation_mistake(user_id, original_text, user_translation, cate
                     
                     # ✅ Вставляем в таблицу ошибок с использованием общего идентификатора
                     cursor.execute("""
-                        INSERT INTO detailed_mistakes_deepseek (
+                        INSERT INTO bt_3_detailed_mistakes (
                             user_id, sentence, added_data, main_category, sub_category, mistake_count, sentence_id, correct_translation, score
                         ) VALUES (%s, %s, NOW(), %s, %s, 1, %s, %s, %s)
                         ON CONFLICT (user_id, sentence, main_category, sub_category)
                         DO UPDATE SET
-                            mistake_count = detailed_mistakes_deepseek.mistake_count + 1,
-                            attempt = detailed_mistakes_deepseek.attempt + 1,
+                            mistake_count = bt_3_detailed_mistakes.mistake_count + 1,
+                            attempt = bt_3_detailed_mistakes.attempt + 1,
                             last_seen = NOW(),
                             score = EXCLUDED.score;
                     """, (user_id, original_text, main_category, sub_category, sentence_id, correct_translation, score)
@@ -2138,7 +2138,7 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
 
     # Получаем разрешённые номера предложений
     cursor.execute("""
-        SELECT unique_id FROM daily_sentences_deepseek WHERE date = CURRENT_DATE AND user_id = %s
+        SELECT unique_id FROM bt_3_daily_sentences WHERE date = CURRENT_DATE AND user_id = %s
     """, (user_id,))
     
     allowed_sentences = {row[0] for row in cursor.fetchall()}  # Собираем в set() для быстрого поиска
@@ -2157,7 +2157,7 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
 
             # Получаем оригинальный текст предложения
             cursor.execute("""
-                SELECT id, sentence, session_id, id_for_mistake_table FROM daily_sentences_deepseek 
+                SELECT id, sentence, session_id, id_for_mistake_table FROM bt_3_daily_sentences 
                 WHERE date = CURRENT_DATE AND unique_id = %s AND user_id = %s;
             """, (sentence_number, user_id))
 
@@ -2171,7 +2171,7 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
 
             # Проверяем, отправлял ли этот пользователь перевод этого предложения
             cursor.execute("""
-                SELECT id FROM translations_deepseek 
+                SELECT id FROM bt_3_translations 
                 WHERE user_id = %s AND sentence_id = %s AND timestamp::date = CURRENT_DATE;
             """, (user_id, sentence_id))
 
@@ -2204,7 +2204,7 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
 
             # ✅ Сохраняем перевод в базу данных с защитой от ошибок
             cursor.execute("""
-                INSERT INTO translations_deepseek (user_id, session_id, username, sentence_id, user_translation, score, feedback)
+                INSERT INTO bt_3_translations (user_id, session_id, username, sentence_id, user_translation, score, feedback)
                 VALUES (%s, %s, %s, %s, %s, %s, %s);
             """, (user_id, session_id, username, sentence_id, user_translation, score, feedback))
 
@@ -2212,70 +2212,61 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
 
             # Проверяем: реально ли это предложение есть в базе ошибок?
             cursor.execute("""
-                SELECT COUNT(*) FROM detailed_mistakes_deepseek
+                SELECT COUNT(*) FROM bt_3_detailed_mistakes
                 WHERE sentence_id = %s AND user_id = %s;
             """, (id_for_mistake_table, user_id))
 
             was_in_mistakes = cursor.fetchone()[0] > 0
 
-            if score >= 85 and was_in_mistakes:
-                try:
-                    # # ✅ Проверяем, существует ли предложение с таким sentence_id
-                    # cursor.execute("""
-                    #     SELECT COUNT(*) FROM detailed_mistakes_deepseek
-                    #     WHERE sentence_id = %s;
-                    # """, (id_for_mistake_table, ))
+            # === КЛЮЧЕВАЯ ЛОГИКА ===
 
-                    # result = cursor.fetchone()
-                    # if result and result[0] > 0:
-                    logging.info(f"✅ Получаем все данные Предложения FROM detailed_mistakes_deepseek с sentence_id = {id_for_mistake_table}")
+            if was_in_mistakes:
+                if score >= 85:
+                    # Получаем текущую максимальную попытку
                     cursor.execute("""
-                        SELECT user_id, score, attempt FROM detailed_mistakes_deepseek
-                        WHERE sentence_id = %s;
-                    """, (id_for_mistake_table,))
-                        
-                    rows = cursor.fetchall()
-                    user_id = rows[0][0]
-                    score_to_save = score
-                    total_attempts = max(row[2] for row in rows)
-                    # Добавляем 1 Чтобы учесть Текущую попытку (без добавления 1 Она не будет учтена)
-                    total_attempts = total_attempts + 1
-                    
-                    logging.info(f"✅ Переносим данные Предложения FROM detailed_mistakes_deepseek в Таблицу successful_translations где находятся предложения с баллом 80 И более с sentence_id = {id_for_mistake_table}")
-                    cursor.execute("""
-                    INSERT INTO successful_translations (user_id, sentence_id, score, attempt, date)
-                    VALUES (%s,%s,%s,%s, NOW());
-                    """, (user_id, sentence_id, score_to_save, total_attempts))
+                        SELECT MAX(attempt) FROM bt_3_detailed_mistakes
+                        WHERE sentence_id = %s AND user_id = %s;
+                    """, (id_for_mistake_table, user_id))
+                    result = cursor.fetchone()
+                    total_attempts = (result[0] or 0) + 1
 
-                    logging.info(f"✅ Удаляем предложение с sentence_id = {id_for_mistake_table}, так как балл выше 85.")
-                    
-                    # ✅ Удаляем все ошибки, связанные с данным предложением
+                    # Переносим в успешные
                     cursor.execute("""
-                        DELETE FROM detailed_mistakes_deepseek
-                        WHERE sentence_id = %s;
-                        """, (id_for_mistake_table, ))
+                        INSERT INTO bt_3_successful_translations (user_id, sentence_id, score, attempt, date)
+                        VALUES (%s, %s, %s, %s, NOW());
+                    """, (user_id, sentence_id, score, total_attempts))
+
+                    # Удаляем из ошибок
+                    cursor.execute("""
+                        DELETE FROM bt_3_detailed_mistakes
+                        WHERE sentence_id = %s AND user_id = %s;
+                    """, (id_for_mistake_table, user_id))
                     conn.commit()
-                    logging.info(f"✅ Предложение с sentence_id = {id_for_mistake_table} успешно удалено.")
+                    logging.info(f"✅ Перевод №{sentence_number} перемещён в успешные и удалён из ошибок.")
+                else:
+                    logging.info(f"⚠️ Перевод №{sentence_number} пока не набрал 85, остаётся в ошибках.")
+                continue  # не идём дальше
 
-                except Exception as e:
-                    logging.error(f"❌ Ошибка при удалении предложения с sentence_id = {id_for_mistake_table}: {e}")
-
-            mistake_exists = was_in_mistakes
-
-            if score >= 80 and not mistake_exists:
-                cursor.execute("""
-                    INSERT INTO successful_translations (user_id, sentence_id, score, attempt, date)
-                    VALUES(%s, %s, %s, %s, NOW());
-                    """, (user_id, sentence_id, score, int(1)))
-                print(f"✅ Перевод на высоком уровне ({score}/100)")
-                continue
-            
-            # ✅ Если оценка < 80 → только тогда сохраняем в базу
-            try:
-                await log_translation_mistake(user_id, original_text, user_translation, categories, subcategories, score, correct_translation)
-            
-            except Exception as e:
-                print(f"⚠️ Ошибка при записи ошибки в detailed_mistakes_deepseek: {e}")
+            # Новый перевод (не был в ошибках)
+            if not was_in_mistakes:
+                if score >= 80:
+                    cursor.execute("""
+                        INSERT INTO bt_3_successful_translations (user_id, sentence_id, score, attempt, date)
+                        VALUES(%s, %s, %s, %s, NOW());
+                    """, (user_id, sentence_id, score, 1))
+                    conn.commit()
+                    logging.info(f"✅ Новый успешный перевод №{sentence_number}, {score}/100")
+                    continue
+                else:
+                    # Добавляем в ошибки
+                    try:
+                        await log_translation_mistake(
+                            user_id, original_text, user_translation,
+                            categories, subcategories, score, correct_translation
+                        )
+                        logging.info(f"🟥 Добавлен в ошибки: №{sentence_number}, score={score}")
+                    except Exception as e:
+                        logging.error(f"❌ Ошибка при записи ошибки: {e}")
 
         except Exception as e:
             logging.error(f"❌ Ошибка обработки предложения {number_str}: {e}")
@@ -2292,14 +2283,14 @@ async def get_original_sentences(user_id, context: CallbackContext):
     try:
     
         # Выполняем SQL-запрос: выбираем 1 случайных предложений из базы данных в которую мы предварительно поместили предложение
-        cursor.execute("SELECT sentence FROM sentences_deepseek ORDER BY RANDOM() LIMIT 1;")
+        cursor.execute("SELECT sentence FROM bt_3_sentences ORDER BY RANDOM() LIMIT 1;")
         rows = [row[0] for row in cursor.fetchall()]   # Возвращаем список предложений
         print(f"📌 Найдено в базе данных: {rows}") # ✅ Логируем результат
 
         # ✅ Загружаем все предложения из базы ошибок
         cursor.execute("""
             SELECT sentence, sentence_id
-            FROM detailed_mistakes_deepseek
+            FROM bt_3_detailed_mistakes
             WHERE user_id = %s
             ORDER BY mistake_count DESC, last_seen ASC; 
         """, (user_id, ))
@@ -2470,7 +2461,7 @@ async def rate_mistakes(user_id):
             # we calculate amount of translated sentences of the user in a week 
             cursor.execute("""
                 SELECT COUNT(sentence_id) 
-                FROM translations_deepseek 
+                FROM bt_3_translations 
                 WHERE user_id = %s AND timestamp >= NOW() - INTERVAL '6 days'; 
             """, (user_id,))
             total_sentences = cursor.fetchone()
@@ -2480,13 +2471,13 @@ async def rate_mistakes(user_id):
             cursor.execute("""
                 WITH user_mistakes AS (
                     SELECT COUNT(*) AS mistakes_week
-                    FROM detailed_mistakes_deepseek
+                    FROM bt_3_detailed_mistakes
                     WHERE user_id = %s
                     AND added_data >= NOW() - INTERVAL '6 days'
                 ),
                 top_category AS (
                     SELECT main_category
-                    FROM detailed_mistakes_deepseek
+                    FROM bt_3_detailed_mistakes
                     WHERE user_id = %s
                     AND added_data >= NOW() - INTERVAL '6 days'
                     GROUP BY main_category
@@ -2495,7 +2486,7 @@ async def rate_mistakes(user_id):
                 ),
                 number_of_topcategory_mist AS (
                     SELECT main_category, COUNT(*) AS number_of_top_category_mistakes
-                    FROM detailed_mistakes_deepseek
+                    FROM bt_3_detailed_mistakes
                     WHERE user_id = %s
                     AND added_data >= NOW() - INTERVAL '6 days'
                     AND main_category = (SELECT main_category FROM top_category)
@@ -2507,7 +2498,7 @@ async def rate_mistakes(user_id):
                     SELECT sub_category, 
                         COUNT(*) AS count,
                         ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC) AS subcategory_rank
-                    FROM detailed_mistakes_deepseek 
+                    FROM bt_3_detailed_mistakes 
                     WHERE user_id = %s
                     AND added_data >= NOW() - INTERVAL '6 days'
                     AND main_category = (SELECT main_category FROM top_category)
@@ -2600,7 +2591,7 @@ async def send_me_analytics_and_recommend_me(context: CallbackContext):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-            SELECT DISTINCT user_id FROM detailed_mistakes_deepseek;
+            SELECT DISTINCT user_id FROM bt_3_detailed_mistakes;
             """)
             user_ids = cursor.fetchall()
     if not user_ids:
@@ -2613,7 +2604,7 @@ async def send_me_analytics_and_recommend_me(context: CallbackContext):
             with get_db_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("""
-                        SELECT DISTINCT username FROM translations_deepseek WHERE user_id = %s;""",
+                        SELECT DISTINCT username FROM bt_3_translations WHERE user_id = %s;""",
                         (user_id, ))
 
                     result = cursor.fetchone()
@@ -2734,7 +2725,7 @@ async def send_me_analytics_and_recommend_me(context: CallbackContext):
             with get_db_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("""
-                        SELECT DISTINCT username FROM translations_deepseek WHERE user_id = %s;
+                        SELECT DISTINCT username FROM bt_3_translations WHERE user_id = %s;
                     """, (user_id, ))
                     result = cursor.fetchone()
                     username = result[0] if result else f"User {user_id}"
@@ -2752,7 +2743,7 @@ async def force_finalize_sessions(context: CallbackContext = None):
     cursor = conn.cursor()
 
     cursor.execute("""
-        UPDATE user_progress_deepseek 
+        UPDATE bt_3_user_progress 
         SET end_time = NOW(), completed = TRUE
         WHERE completed = FALSE AND start_time::date = CURRENT_DATE;
     """)
@@ -2781,24 +2772,24 @@ async def send_weekly_summary(context: CallbackContext):
         COALESCE(p.avg_time, 0) AS среднее_время_сессии_в_минутах, -- ✅ Среднее время сессии
         COALESCE(p.total_time, 0) AS общее_время_в_минутах, -- ✅ Теперь есть и общее время
         (SELECT COUNT(*) 
-        FROM daily_sentences_deepseek 
+        FROM bt_3_daily_sentences 
         WHERE date >= CURRENT_DATE - INTERVAL '6 days' 
         AND user_id = t.user_id) 
         - COUNT(DISTINCT t.sentence_id) AS пропущено_за_неделю,
         COALESCE(AVG(t.score), 0) 
             - (COALESCE(p.avg_time, 0) * 1) -- ✅ Среднее время в штрафе
             - ((SELECT COUNT(*) 
-                FROM daily_sentences_deepseek 
+                FROM bt_3_daily_sentences 
                 WHERE date >= CURRENT_DATE - INTERVAL '6 days' 
                 AND user_id = t.user_id) 
             - COUNT(DISTINCT t.sentence_id)) * 20
             AS итоговый_балл
-    FROM translations_deepseek t
+    FROM bt_3_translations t
     LEFT JOIN (
         SELECT user_id, 
             AVG(EXTRACT(EPOCH FROM (end_time - start_time))/60) AS avg_time, -- ✅ Среднее время сессии
             SUM(EXTRACT(EPOCH FROM (end_time - start_time))/60) AS total_time -- ✅ Общее время
-        FROM user_progress_deepseek 
+        FROM bt_3_user_progress 
         WHERE completed = TRUE 
         AND start_time >= CURRENT_DATE - INTERVAL '6 days'
         GROUP BY user_id
@@ -2850,24 +2841,24 @@ async def user_stats(update: Update, context: CallbackContext):
             COALESCE(AVG(t.score), 0) AS средняя_оценка,
             COALESCE((
                 SELECT AVG(EXTRACT(EPOCH FROM (p.end_time - p.start_time)) / 60)  -- ✅ Используем AVG вместо SUM
-                FROM user_progress_deepseek p
+                FROM bt_3_user_progress p
                 WHERE p.user_id = t.user_id 
                     AND p.start_time::date = CURRENT_DATE
                     AND p.completed = TRUE
             ), 0) AS среднее_время_сессии_в_минутах,  -- ✅ Обновили название, чтобы было понятно
-            GREATEST(0, (SELECT COUNT(*) FROM daily_sentences_deepseek 
+            GREATEST(0, (SELECT COUNT(*) FROM bt_3_daily_sentences 
                         WHERE date = CURRENT_DATE AND user_id = t.user_id) - COUNT(DISTINCT t.sentence_id)) AS пропущено,
             COALESCE(AVG(t.score), 0) 
                 - (COALESCE((
                     SELECT AVG(EXTRACT(EPOCH FROM (p.end_time - p.start_time)) / 60)  -- ✅ Здесь тоже AVG
-                    FROM user_progress_deepseek p
+                    FROM bt_3_user_progress p
                     WHERE p.user_id = t.user_id 
                         AND p.start_time::date = CURRENT_DATE
                         AND p.completed = TRUE
                 ), 0) * 1) 
-                - (GREATEST(0, (SELECT COUNT(*) FROM daily_sentences_deepseek
+                - (GREATEST(0, (SELECT COUNT(*) FROM bt_3_daily_sentences
                                 WHERE date = CURRENT_DATE AND user_id = t.user_id) - COUNT(DISTINCT t.sentence_id)) * 20) AS итоговый_балл
-        FROM translations_deepseek t
+        FROM bt_3_translations t
         WHERE t.user_id = %s AND t.timestamp::date = CURRENT_DATE
         GROUP BY t.user_id;
     """, (user_id,))
@@ -2886,21 +2877,21 @@ async def user_stats(update: Update, context: CallbackContext):
             COALESCE(AVG(t.score), 0) 
                 - (COALESCE(p.avg_session_time, 0) * 1)  
                 - (GREATEST(0, COALESCE(ds.total_sentences, 0) - COUNT(DISTINCT t.sentence_id)) * 20) AS итоговый_балл
-        FROM translations_deepseek t
+        FROM bt_3_translations t
         LEFT JOIN (
             -- ✅ Отдельный подзапрос для корректного расчёта времени по каждому пользователю
             SELECT 
                 user_id, 
                 AVG(EXTRACT(EPOCH FROM (end_time - start_time)) / 60) AS avg_session_time, 
                 SUM(EXTRACT(EPOCH FROM (end_time - start_time)) / 60) AS total_time 
-            FROM user_progress_deepseek
+            FROM bt_3_user_progress
             WHERE completed = TRUE 
                 AND start_time >= CURRENT_DATE - INTERVAL '6 days'
             GROUP BY user_id
         ) p ON t.user_id = p.user_id
         LEFT JOIN (
             SELECT user_id, COUNT(*) AS total_sentences
-            FROM daily_sentences_deepseek
+            FROM bt_3_daily_sentences
             WHERE date >= CURRENT_DATE - INTERVAL '6 days'
             GROUP BY user_id
         ) ds ON t.user_id = ds.user_id
@@ -2952,7 +2943,7 @@ async def send_daily_summary(context: CallbackContext):
     # 🔹 Собираем активных пользователей (кто перевёл хотя бы одно предложение)
     cursor.execute("""
         SELECT DISTINCT user_id, username 
-        FROM translations_deepseek
+        FROM bt_3_translations
         WHERE timestamp::date = CURRENT_DATE;
     """)
     active_users = {row[0]: row[1] for row in cursor.fetchall()}
@@ -2960,7 +2951,7 @@ async def send_daily_summary(context: CallbackContext):
     # 🔹 Собираем всех, кто хоть что-то писал в чат
     cursor.execute("""
         SELECT DISTINCT user_id, username
-        FROM messages_deepseek
+        FROM bt_3_messages
         WHERE timestamp >= date_trunc('month', CURRENT_DATE);
     """)
     all_users = {row[0]: row[1] for row in cursor.fetchall()}
@@ -2980,13 +2971,13 @@ async def send_daily_summary(context: CallbackContext):
             COALESCE(AVG(t.score), 0) 
             - (COALESCE(p.avg_time, 0) * 1) 
             - ((COUNT(DISTINCT ds.id) - COUNT(DISTINCT t.id)) * 20) AS final_score
-        FROM daily_sentences_deepseek ds
-        LEFT JOIN translations_deepseek t ON ds.user_id = t.user_id AND ds.id = t.sentence_id
+        FROM bt_3_daily_sentences ds
+        LEFT JOIN bt_3_translations t ON ds.user_id = t.user_id AND ds.id = t.sentence_id
         LEFT JOIN (
             SELECT user_id, 
                 AVG(EXTRACT(EPOCH FROM (end_time - start_time))/60) AS avg_time, 
                 SUM(EXTRACT(EPOCH FROM (end_time - start_time))/60) AS total_time
-            FROM user_progress_deepseek
+            FROM bt_3_user_progress
             WHERE completed = true
         		AND start_time::date = CURRENT_DATE -- ✅ Теперь только за день
             GROUP BY user_id
@@ -3040,14 +3031,14 @@ async def send_progress_report(context: CallbackContext):
     # 🔹 Получаем всех пользователей, которые писали в чат **за месяц**
     cursor.execute("""
         SELECT DISTINCT user_id, username 
-        FROM messages_deepseek
+        FROM bt_3_messages
         WHERE timestamp >= date_trunc('month', CURRENT_DATE);
     """)
     all_users = {int(row[0]): row[1] for row in cursor.fetchall()}
 
     # 🔹 Получаем всех, кто перевёл хотя бы одно предложение **за сегодня**
     cursor.execute("""
-        SELECT DISTINCT user_id FROM translations_deepseek WHERE timestamp::date = CURRENT_DATE;
+        SELECT DISTINCT user_id FROM bt_3_translations WHERE timestamp::date = CURRENT_DATE;
     """)
     active_users = {row[0] for row in cursor.fetchall()}
 
@@ -3064,13 +3055,13 @@ async def send_progress_report(context: CallbackContext):
         COALESCE(AVG(t.score), 0) 
             - (COALESCE(p.avg_time, 0) * 1) -- ✅ Используем среднее время в расчётах
             - ((COUNT(DISTINCT ds.id) - COUNT(DISTINCT t.id)) * 20) AS итоговый_балл
-    FROM daily_sentences_deepseek ds
-    LEFT JOIN translations_deepseek t ON ds.user_id = t.user_id AND ds.id = t.sentence_id
+    FROM bt_3_daily_sentences ds
+    LEFT JOIN bt_3_translations t ON ds.user_id = t.user_id AND ds.id = t.sentence_id
     LEFT JOIN (
         SELECT user_id, 
             AVG(EXTRACT(EPOCH FROM (end_time - start_time))/60) AS avg_time, -- ✅ Среднее время сессии за день
             SUM(EXTRACT(EPOCH FROM (end_time - start_time))/60) AS total_time -- ✅ Общее время за день
-        FROM user_progress_deepseek
+        FROM bt_3_user_progress
         WHERE completed = TRUE 
             AND start_time::date = CURRENT_DATE -- ✅ Теперь только за день
         GROUP BY user_id
@@ -3211,9 +3202,9 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
 
-            # take all users who made at least one mistake from detailed_mistakes_deepseek table
+            # take all users who made at least one mistake from bt_3_detailed_mistakes table
             cursor.execute("""
-                SELECT DISTINCT user_id FROM detailed_mistakes_deepseek
+                SELECT DISTINCT user_id FROM bt_3_detailed_mistakes
                 WHERE added_data >= NOW() - INTERVAL '6 days';
             """)
             user_ids = [i[0] for i in cursor.fetchall() if i[0] is not None]
@@ -3222,7 +3213,7 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
                 original_by_id = {}
 
                 cursor.execute("""
-                SELECT username FROM user_progress_deepseek
+                SELECT username FROM bt_3_user_progress
                 WHERE user_id = %s;
                 """, (user_id,))
                 row = cursor.fetchone()
@@ -3232,7 +3223,7 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
                 # ✅ Загружаем все предложения из базы ошибок
                 cursor.execute("""
                     SELECT sentence, correct_translation
-                    FROM detailed_mistakes_deepseek
+                    FROM bt_3_detailed_mistakes
                     WHERE user_id = %s
                     ORDER BY mistake_count DESC, last_seen ASC; 
                 """, (user_id, ))
