@@ -158,7 +158,7 @@ prometheus-client==0.14.1
 prompt-toolkit==3.0.43
 proto-plus==1.26.0
 protobuf>=5.26.1,<6.0.0
-psutil==7.4.1
+psutil>=7.0,<8.0
 psycopg2-binary==2.9.10
 ptyprocess==0.7.0
 pure-eval==0.2.2
