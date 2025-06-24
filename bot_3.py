@@ -26,14 +26,17 @@ from anthropic import AsyncAnthropic
 from telegram.error import TimedOut, BadRequest
 import tempfile
 import sys
-
+import livekit.api
 from google.cloud import texttospeech
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 from pydub import AudioSegment
 import io
-
+import livekit.api
+from datetime import datetime
+import logging
+import sys
 
 application = None
 global_assistants_cache = {}
@@ -516,6 +519,19 @@ if openai.api_key:
 else:
     logging.error("❌ OPENAI_API_KEY не загружен! Проверьте переменные окружения.")
 
+# LiveKit конфигурация
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
+LIVEKIT_URL = "wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud"
+CLIENT_HOST = os.getenv("CLIENT_HOST")
+
+if LIVEKIT_API_KEY and LIVEKIT_API_SECRET and CLIENT_HOST:
+    logging.info("✅ LiveKit API keys и CLIENT_HOST загружены!")
+else:
+    logging.error("❌ LiveKit API keys или CLIENT_HOST не загружены!")
+
+
+
 print("🚀 Все переменные окружения Railway:")
 for key, value in os.environ.items():
     print(f"{key}: {value[:10]}...")  # Выводим первые 10 символов для безопасности
@@ -585,6 +601,7 @@ def initialise_database():
                 CREATE TABLE IF NOT EXISTS bt_3_translations (
                         id SERIAL PRIMARY KEY,
                         user_id BIGINT NOT NULL,
+                        id_for_mistake_table INT,
                         session_id BIGINT,
                         username TEXT,
                         sentence_id INT NOT NULL,
@@ -649,6 +666,18 @@ def initialise_database():
                     sentence TEXT NOT NULL
                 );
                          
+            """)
+
+            curr.execute("""
+                CREATE TABLE IF NOT EXISTS bt_3_attempts (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    id_for_mistake_table INT NOT NULL,
+                    attempt INT DEFAULT 1,
+                    
+                    CONSTRAINT unique_attempt UNIQUE (user_id, id_for_mistake_table)
+                         
+                );
             """)
 
 
@@ -724,7 +753,7 @@ def initialise_database():
                         sentence_id INT,
                         correct_translation TEXT NOT NULL,
                         score INT,
-                        attempt INT DEFAULT 1,
+                        attempt INT DEFAULT 1, 
 
                         -- ✅ Уникальный ключ для предотвращения дубликатов
                         CONSTRAINT for_mistakes_table_bt_3 UNIQUE (user_id, sentence, main_category, sub_category)
@@ -774,7 +803,8 @@ async def send_main_menu(update: Update, context: CallbackContext):
     keyboard = [
         ["📌 Выбрать тему"],  # ❗ Убедись, что текст здесь правильный
         ["🚀 Начать перевод", "✅ Завершить перевод"],
-        ["📜 Проверить перевод", "🟡 Посмотреть свою статистику"]
+        ["📜 Проверить перевод", "🟡 Посмотреть свою статистику"],
+        ["🎙 Начать урок", "👥 Групповой звонок"]
     ]
     
     # создаем в словаре клю service_message_ids Список для хранения всех id Сообщений, Для того чтобы потом можно было их удалить после выполнения перевода
@@ -819,6 +849,10 @@ async def handle_button_click(update: Update, context: CallbackContext):
     elif text == "📜 Проверить перевод":
         logging.info(f"📌 Пользователь {update.message.from_user.id} нажал кнопку '📜 Проверить перевод'. Запускаем проверку.")
         await check_translation_from_text(update, context)  # ✅ Теперь сразу запускаем проверку переводов
+    elif text == "🎙 Начать урок":
+        await start_lesson(update, context)
+    elif text == "👥 Групповой звонок":
+        await group_call(update, context)
 
 
 # 🔹 **Функция, которая запускает проверку переводов**
@@ -2079,6 +2113,8 @@ async def log_translation_mistake(user_id, original_text, user_translation, cate
                         logging.warning(f"⚠️ sentence_id не найдено для предложения '{original_text}'")
                     
                     # ✅ Вставляем в таблицу ошибок с использованием общего идентификатора
+                    #score = EXCLUDED.score означает:
+                    # "Обновить поле score в существующей строке, установив его в то значение score, которое мы только что пытались вставить in VALUES".
                     cursor.execute("""
                         INSERT INTO bt_3_detailed_mistakes (
                             user_id, sentence, added_data, main_category, sub_category, mistake_count, sentence_id, correct_translation, score
@@ -2089,7 +2125,7 @@ async def log_translation_mistake(user_id, original_text, user_translation, cate
                             attempt = bt_3_detailed_mistakes.attempt + 1,
                             last_seen = NOW(),
                             score = EXCLUDED.score;
-                    """, (user_id, original_text, main_category, sub_category, sentence_id, correct_translation, score)
+                    """, (user_id, original_text, main_category, sub_category, sentence_id, correct_translation, score) # получить его из таблицы bt_daily_sentences Выше уже мы к этой таблице обращаемся и получаем из неё что-то добавить ещё session_id
                     )
                     
                     conn.commit()
@@ -2204,9 +2240,9 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
 
             # ✅ Сохраняем перевод в базу данных с защитой от ошибок
             cursor.execute("""
-                INSERT INTO bt_3_translations (user_id, session_id, username, sentence_id, user_translation, score, feedback)
-                VALUES (%s, %s, %s, %s, %s, %s, %s);
-            """, (user_id, session_id, username, sentence_id, user_translation, score, feedback))
+                INSERT INTO bt_3_translations (user_id, id_for_mistake_table, session_id, username, sentence_id, user_translation, score, feedback)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+            """, (user_id, id_for_mistake_table, session_id, username, sentence_id, user_translation, score, feedback))
 
             conn.commit()
 
@@ -2224,27 +2260,45 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
                 if score >= 85:
                     # Получаем текущую максимальную попытку
                     cursor.execute("""
-                        SELECT MAX(attempt) FROM bt_3_detailed_mistakes
-                        WHERE sentence_id = %s AND user_id = %s;
+                        SELECT attempt 
+                        FROM bt_3_attempts
+                        WHERE id_for_mistake_table = %s AND user_id = %s;
                     """, (id_for_mistake_table, user_id))
+                    
                     result = cursor.fetchone()
-                    total_attempts = (result[0] or 0) + 1
+                    total_attempts = (result[0] or 0) + 1 # +1 — текущая попытка, если успешная
 
                     # Переносим в успешные
                     cursor.execute("""
                         INSERT INTO bt_3_successful_translations (user_id, sentence_id, score, attempt, date)
                         VALUES (%s, %s, %s, %s, NOW());
-                    """, (user_id, sentence_id, score, total_attempts))
+                    """, (user_id, id_for_mistake_table, score, total_attempts))
 
                     # Удаляем из ошибок
                     cursor.execute("""
                         DELETE FROM bt_3_detailed_mistakes
                         WHERE sentence_id = %s AND user_id = %s;
                     """, (id_for_mistake_table, user_id))
+
+                    cursor.execute("""
+                        DELETE FROM bt_3_attempts
+                        WHERE id_for_mistake_table = %s AND user_id= %s;
+                    """,(id_for_mistake_table, user_id))
+
                     conn.commit()
                     logging.info(f"✅ Перевод №{sentence_number} перемещён в успешные и удалён из ошибок.")
                 else:
                     logging.info(f"⚠️ Перевод №{sentence_number} пока не набрал 85, остаётся в ошибках.")
+
+                    # Если мы не набрали 85 Баллов то необходимо увел attempt 
+                    cursor.execute("""
+                        INSERT INTO bt_3_attempts (user_id, id_for_mistake_table)
+                        VALUES (%s, %s)
+                        ON CONFLICT (user_id, id_for_mistake_table)
+                        DO UPDATE SET attempt = bt_3_attempts.attempt + 1;
+                    """, (user_id, id_for_mistake_table))
+                    conn.commit()
+
                 continue  # не идём дальше
 
             # Новый перевод (не был в ошибках)
@@ -2253,18 +2307,29 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
                     cursor.execute("""
                         INSERT INTO bt_3_successful_translations (user_id, sentence_id, score, attempt, date)
                         VALUES(%s, %s, %s, %s, NOW());
-                    """, (user_id, sentence_id, score, 1))
+                    """, (user_id, id_for_mistake_table, score, 1))
                     conn.commit()
                     logging.info(f"✅ Новый успешный перевод №{sentence_number}, {score}/100")
                     continue
                 else:
                     # Добавляем в ошибки
                     try:
+                        # Если перевод не набрал 80 С первого раза Мы должны увеличить счётчик attempt С 0 До 1 (по умолчанию стоит 1 Если мы вносим в таблицу предложения)
+                        cursor.execute("""
+                            INSERT INTO bt_3_attempts (user_id, id_for_mistake_table)
+                            VALUES (%s, %s)
+                            ON CONFLICT (user_id, id_for_mistake_table)
+                            DO UPDATE SET attempt = bt_3_attempts.attempt + 1;
+                        """, (user_id, id_for_mistake_table))
+                        conn.commit()
+                        logging.info(f"✅ Записана попытка в bt_3_attempts: id_for_mistake_table={id_for_mistake_table}, score={score}")
+
                         await log_translation_mistake(
                             user_id, original_text, user_translation,
                             categories, subcategories, score, correct_translation
                         )
                         logging.info(f"🟥 Добавлен в ошибки: №{sentence_number}, score={score}")
+
                     except Exception as e:
                         logging.error(f"❌ Ошибка при записи ошибки: {e}")
 
@@ -3298,6 +3363,71 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
 
 
 
+# async def create_room(user_id, username, is_group=False):
+#     """Создаёт комнату LiveKit и возвращает ссылку."""
+#     try:
+#         livekit_api = livekit.api.LiveKitAPI(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL)
+#         room_name = f"{'group-' if is_group else ''}mentor-{user_id}-{int(datetime.now().timestamp())}"
+#         room = await livekit_api.room.create(room_name=room_name)
+
+#         # Генерация токена
+#         token = livekit.api.AccessToken(
+#             api_key=LIVEKIT_API_KEY,
+#             api_secret=LIVEKIT_API_SECRET,
+#             identity=str(user_id),
+#             name=username,
+#             grant=livekit.api.VideoGrant(
+#                 room=room_name,
+#                 room_join=True,
+#                 can_publish=True,
+#                 can_subscribe=True
+#             )
+#         ).to_jwt()
+
+#         # Ссылка на клиент
+#         client_url = f"{CLIENT_HOST}/client.html?room_name={room_name}&token={token}"
+#         return client_url, room_name
+#     except Exception as e:
+#         logging.error(f"❌ Ошибка создания комнаты LiveKit: {e}")
+#         return None, None
+
+# async def start_lesson(update, context):
+#     """Обработчик кнопки 'Начать урок'."""
+#     user = update.message.from_user
+#     user_id = user.id
+#     username = user.username or user.first_name
+#     client_url, room_name = await create_room(user_id, username, is_group=False)
+
+#     if client_url:
+#         msg = await update.message.reply_text(
+#             f"Your room is ready for the lesson!\nFollow the Link to start:\n{client_url}"
+#         )
+#         add_service_msg_id(context, msg.message_id)
+#     else:
+#         msg = await update.message.reply_text("❌ Ошибка создания комнаты. Попробуйте позже.")
+#         add_service_msg_id(context, msg.message_id)
+
+# async def group_call(update, context):
+#     """Обработчик кнопки 'Групповой звонок'."""
+#     user = update.message.from_user
+#     user_id = user.id
+#     username = user.username or user.first_name
+#     client_url, room_name = await create_room(user_id, username, is_group=True)
+#     if client_url:
+#         msg = await update.message.reply_text(
+#             f"The room for GROUP is ready!\nCome on Board: {client_url}",
+#             chat_id=BOT_GROUP_CHAT_ID_Deutsch
+#         )
+#         add_service_msg_id(context, msg.message_id)
+#     else:
+#         msg = await update.message.reply_text("❌ Ошибка создания комнаты. Попробуйте позже.")
+#         add_service_msg_id(context, msg.message_id)
+
+
+
+
+
+
 
 def main():
     global application
@@ -3327,15 +3457,15 @@ def main():
     scheduler = BackgroundScheduler()
 
     def run_async_job(async_func, context=None):
-         if context is None:
-             context = CallbackContext(application=application)   # Создаем `context`, если его нет
+        if context is None:
+            context = CallbackContext(application=application)   # Создаем `context`, если его нет
 
-         try:
-             loop = asyncio.get_running_loop() # ✅ Берем уже работающий event loop
-         except RuntimeError:
-             loop = asyncio.new_event_loop()  # ❌ В потоке `apscheduler` нет loop — создаем новый
-             asyncio.set_event_loop(loop)
-         loop.run_until_complete(async_func(context)) # ✅ Теперь event loop всегда работает
+        try:
+            loop = asyncio.get_running_loop() # ✅ Берем уже работающий event loop
+        except RuntimeError:
+            loop = asyncio.new_event_loop()  # ❌ В потоке `apscheduler` нет loop — создаем новый
+            asyncio.set_event_loop(loop)
+        loop.run_until_complete(async_func(context)) # ✅ Теперь event loop всегда работает
 
     # ✅ Добавляем задачу в `scheduler` ДЛЯ УТРА
     print("📌 Добавляем задачу в scheduler...")

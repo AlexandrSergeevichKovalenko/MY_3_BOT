@@ -30,7 +30,16 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT session_id, username, start_time, end_time FROM user_progress_deepseek
+                SELECT user_id, id_for_mistake_table, attempt FROM bt_3_attempts
+                WHERE user_id = %s;
+            """,(user_id,))
+
+            result_from_bt_3_attempts = cursor.fetchall()
+            columns_bt_3_attempts = [desc[0] for desc in cursor.description]
+            df_not_succeded_attempts = pd.DataFrame(result_from_bt_3_attempts, columns=columns_bt_3_attempts)
+
+            cursor.execute("""
+                SELECT session_id, username, start_time, end_time FROM bt_3_user_progress
                 WHERE user_id = %s;
             """, (user_id, ))
             
@@ -40,7 +49,7 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
             df_progress = pd.DataFrame(result_from_user_progress_deepseek, columns=columns_user_progress_deepseek)
 
             cursor.execute("""
-                SELECT session_id, username, sentence_id, score, timestamp FROM translations_deepseek
+                SELECT session_id, username, sentence_id, score, timestamp FROM bt_3_translations
                 WHERE user_id = %s;
             """, (user_id, ))
             result_translations_deepseek = cursor.fetchall()          
@@ -48,7 +57,7 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
             df_translations = pd.DataFrame(result_translations_deepseek, columns=columns_translations_deepseek)
 
             cursor.execute("""
-                SELECT sentence_id, score, attempt, date FROM successful_translations
+                SELECT sentence_id, score, attempt, date FROM bt_3_successful_translations
                 WHERE user_id = %s;
             """, (user_id, ))
             result_success_translations = cursor.fetchall()          
@@ -56,7 +65,7 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
             df_success = pd.DataFrame(result_success_translations, columns=columns_success)
 
             cursor.execute("""
-                SELECT added_data, main_category, sub_category, mistake_count, first_seen, last_seen, sentence_id, score, attempt FROM detailed_mistakes_deepseek
+                SELECT sentence_id, score FROM bt_3_detailed_mistakes
                 WHERE user_id = %s;
             """, (user_id, ))
             
@@ -65,7 +74,7 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
             df_mistakes = pd.DataFrame(result_mistakes, columns=columns_mistakes)
 
             cursor.execute("""
-                SELECT date, id, session_id, id_for_mistake_table FROM daily_sentences_deepseek
+                SELECT date, id, session_id, user_id, id_for_mistake_table FROM bt_3_daily_sentences
                 WHERE user_id = %s;
             """, (user_id, ))
 
@@ -79,9 +88,9 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
 
             df_translations['timestamp'] = pd.to_datetime(df_translations['timestamp'])
             df_success['date'] = pd.to_datetime(df_success['date'])
-            df_mistakes['added_data'] = pd.to_datetime(df_mistakes['added_data'])
-            df_mistakes['first_seen'] = pd.to_datetime(df_mistakes['first_seen'])
-            df_mistakes['last_seen'] = pd.to_datetime(df_mistakes['last_seen'])
+            #df_mistakes['added_data'] = pd.to_datetime(df_mistakes['added_data'])
+            #df_mistakes['first_seen'] = pd.to_datetime(df_mistakes['first_seen'])
+            #df_mistakes['last_seen'] = pd.to_datetime(df_mistakes['last_seen'])
             df_sentences['date'] = pd.to_datetime(df_sentences['date'])
 
 
@@ -90,12 +99,12 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
         "translations": df_translations,
         "success": df_success,
         "mistakes": df_mistakes,
-        "sentences": df_sentences
+        "sentences": df_sentences,
+        "not_succesed_attempts": df_not_succeded_attempts
     }
 
 
 if __name__ == "__main__":
     dfs = asyncio.run(load_data_for_analytics(117649764))
-    dfs["translations"].head()
-    print(dfs)
+    print(dfs["translations"].head())
 

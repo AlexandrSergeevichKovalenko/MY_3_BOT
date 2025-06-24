@@ -210,4 +210,12 @@ yarl==1.11.0
 google-cloud-texttospeech==2.25.1
 pydub==0.25.1
 python-dotenv==1.1.0
+livekit-agents>=1.1.1
+livekit-plugins-openai
+livekit-plugins-silero
+python-dotenv
+livekit-api
+flask[async]
+flask-cors
+uvicorn
 

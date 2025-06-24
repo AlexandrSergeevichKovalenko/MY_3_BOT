@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Deutsch Mentor</title>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.1.4/dist/livekit-client.umd.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f0f0f0; }
+        #status { margin: 20px; font-size: 18px; }
+        #transcription { margin: 20px; font-size: 16px; white-space: pre-wrap; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Deutsch Mentor</h1>
+        <p id="status">Verbindung wird hergestellt...</p>
+        <p id="transcription"></p>
+    </div>
+    <script>
+        async function init() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomName = urlParams.get('room_name');
+            const token = urlParams.get('token');
+
+            if (!roomName || !token) {
+                document.getElementById('status').textContent = 'Fehler: Ungültige URL';
+                return;
+            }
+
+            const room = new LivekitClient.Room();
+            room.on('participantConnected', (participant) => {
+                console.log('Teilnehmer verbunden:', participant.identity);
+            });
+
+            try {
+                await room.connect('wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud', token);
+                document.getElementById('status').textContent = 'Verbunden mit Raum: ' + roomName;
+
+                // Включение микрофона
+                const audioTrack = await LivekitClient.createLocalAudioTrack();
+                await room.localParticipant.publishTrack(audioTrack);
+
+                // Обработка аудио от бота
+                room.on('trackSubscribed', (track, publication, participant) => {
+                    if (track.kind === 'audio') {
+                        const audioElement = track.attach();
+                        document.body.appendChild(audioElement);
+                        audioElement.play();
+                    }
+                });
+
+                // Отображение транскрипции
+                room.on('dataReceived', (payload, participant, topic) => {
+                    if (topic === 'transcription') {
+                        const data = JSON.parse(new TextDecoder().decode(payload));
+                        document.getElementById('transcription').textContent += `Du: ${data.text}\nMentor: ${data.response}\n\n`;
+                    }
+                });
+
+            } catch (error) {
+                document.getElementById('status').textContent = 'Fehler: ' + error.message;
+                console.error(error);
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
