@@ -7,64 +7,92 @@
     <style>
         body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f0f0f0; }
         #status { margin: 20px; font-size: 18px; }
-        #transcription { margin: 20px; font-size: 16px; white-space: pre-wrap; }
-        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+        #transcription { margin: 20px; font-size: 16px; white-space: pre-wrap; text-align: left; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 5px; border: none; background-color: #007bff; color: white; }
+        button:disabled { background-color: #cccccc; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Deutsch Mentor</h1>
-        <p id="status">Verbindung wird hergestellt...</p>
+        <button id="joinRoomBtn">Войти в комнату</button>
+        <p id="status">Готов к подключению...</p>
         <p id="transcription"></p>
     </div>
     <script>
-        async function init() {
+        // Объявляем переменные здесь, чтобы они были доступны во всех функциях
+        let room;
+        let token;
+        const statusElement = document.getElementById('status');
+        const joinButton = document.getElementById('joinRoomBtn');
+        const transcriptionElement = document.getElementById('transcription');
+
+        // Эта функция теперь только подготавливает данные при загрузке страницы
+        function setup() {
             const urlParams = new URLSearchParams(window.location.search);
             const roomName = urlParams.get('room_name');
-            const token = urlParams.get('token');
+            token = urlParams.get('token'); // Сохраняем токен для последующего использования
 
             if (!roomName || !token) {
-                document.getElementById('status').textContent = 'Fehler: Ungültige URL';
+                statusElement.textContent = 'Ошибка: Неверная ссылка для подключения.';
+                joinButton.disabled = true;
                 return;
             }
+            
+            // Просто создаем экземпляр комнаты, но НЕ подключаемся к ней
+            room = new LivekitClient.Room();
 
-            const room = new LivekitClient.Room();
-            room.on('participantConnected', (participant) => {
-                console.log('Teilnehmer verbunden:', participant.identity);
+            // СРАЗУ настраиваем, что делать, когда происходят события
+            // Это сработает, когда агент или другой участник отправит аудио
+            room.on('trackSubscribed', (track) => {
+                if (track.kind === 'audio') {
+                    const audioElement = track.attach();
+                    document.body.appendChild(audioElement);
+                    // Пытаемся воспроизвести. Т.к. это произойдет после клика, все должно работать
+                    audioElement.play().catch(e => console.error('Ошибка воспроизведения аудио:', e));
+                }
             });
-
-            try {
-                await room.connect('wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud', token);
-                document.getElementById('status').textContent = 'Verbunden mit Raum: ' + roomName;
-
-                // Включение микрофона
-                const audioTrack = await LivekitClient.createLocalAudioTrack();
-                await room.localParticipant.publishTrack(audioTrack);
-
-                // Обработка аудио от бота
-                room.on('trackSubscribed', (track, publication, participant) => {
-                    if (track.kind === 'audio') {
-                        const audioElement = track.attach();
-                        document.body.appendChild(audioElement);
-                        audioElement.play();
-                    }
-                });
-
-                // Отображение транскрипции
-                room.on('dataReceived', (payload, participant, topic) => {
-                    if (topic === 'transcription') {
-                        const data = JSON.parse(new TextDecoder().decode(payload));
-                        document.getElementById('transcription').textContent += `Du: ${data.text}\nMentor: ${data.response}\n\n`;
-                    }
-                });
-
-            } catch (error) {
-                document.getElementById('status').textContent = 'Fehler: ' + error.message;
-                console.error(error);
-            }
+            
+            // Это сработает, когда агент пришлет расшифровку
+            room.on('dataReceived', (payload) => {
+                const data = JSON.parse(new TextDecoder().decode(payload));
+                // Предполагаем, что агент может присылать и текст пользователя, и свой ответ
+                if(data.text) transcriptionElement.innerHTML += `<b>Вы:</b> ${data.text}<br>`;
+                if(data.response) transcriptionElement.innerHTML += `<b>Ассистент:</b> ${data.response}<br>`;
+            });
         }
 
-        init();
+        // Привязываем ВСЮ логику подключения к НАЖАТИЮ КНОПКИ
+        joinButton.addEventListener('click', async () => {
+            joinButton.disabled = true;
+            joinButton.textContent = 'Подключаемся...';
+
+            try {
+                // ШАГ 1: ПОДКЛЮЧАЕМСЯ К КОМНАТЕ. 
+                // Так как это происходит после клика, браузер разрешит работу с аудио.
+                await room.connect('wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud', token);
+                statusElement.textContent = 'Подключено! Ожидаем приветствие ассистента...';
+                
+                // В этот момент у агента сработает on_user_joined, он отправит приветствие, и вы его услышите.
+
+                // ШАГ 2: ВКЛЮЧАЕМ МИКРОФОН ПОЛЬЗОВАТЕЛЯ
+                const audioTrack = await LivekitClient.createLocalAudioTrack();
+                await room.localParticipant.publishTrack(audioTrack);
+                
+                joinButton.style.display = 'none'; // Прячем кнопку, она больше не нужна
+                statusElement.textContent = 'Соединение установлено. Можете говорить.';
+
+            } catch (error) {
+                statusElement.textContent = 'Ошибка подключения: ' + error.message;
+                console.error(error);
+                joinButton.disabled = false;
+                joinButton.textContent = 'Войти в комнату';
+            }
+        });
+
+        // Вызываем подготовку при загрузке страницы
+        setup();
     </script>
 </body>
 </html>

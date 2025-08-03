@@ -1,0 +1,20 @@
+.env
+my-project-bot-453023-0fee9fd308c4.json
+find_gropu_id.py
+parsing.py
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
+
+# Backend
+backend/venv/
+backend/__pycache__/
+backend/.env*
+*.pyc
+
+# IDE folders
+.vscode/
+.idea/
+*.xlsx
+*.png

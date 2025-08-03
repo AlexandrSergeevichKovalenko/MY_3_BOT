@@ -26,13 +26,13 @@ print(f"✅ База данных подключена! Версия: {db_versio
 cursor.close()
 conn.close()
 
-async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.DataFrame:
+def load_data_for_analytics(user_id: int, start_date, end_date, period: str = 'week') -> pd.DataFrame:
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT user_id, id_for_mistake_table, attempt FROM bt_3_attempts
-                WHERE user_id = %s;
-            """,(user_id,))
+                WHERE user_id = %s AND timestamp BETWEEN %s AND %s;
+            """,(user_id, start_date, end_date))
 
             result_from_bt_3_attempts = cursor.fetchall()
             columns_bt_3_attempts = [desc[0] for desc in cursor.description]
@@ -40,8 +40,8 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
 
             cursor.execute("""
                 SELECT session_id, username, start_time, end_time FROM bt_3_user_progress
-                WHERE user_id = %s;
-            """, (user_id, ))
+                WHERE user_id = %s AND end_time BETWEEN %s AND %s;
+            """, (user_id, start_date, end_date))
             
             result_from_user_progress_deepseek = cursor.fetchall()
 
@@ -50,24 +50,24 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
 
             cursor.execute("""
                 SELECT session_id, username, sentence_id, score, timestamp FROM bt_3_translations
-                WHERE user_id = %s;
-            """, (user_id, ))
+                WHERE user_id = %s AND timestamp BETWEEN %s AND %s;
+            """, (user_id, start_date, end_date ))
             result_translations_deepseek = cursor.fetchall()          
             columns_translations_deepseek = [desc[0] for desc in cursor.description]
             df_translations = pd.DataFrame(result_translations_deepseek, columns=columns_translations_deepseek)
 
             cursor.execute("""
                 SELECT sentence_id, score, attempt, date FROM bt_3_successful_translations
-                WHERE user_id = %s;
-            """, (user_id, ))
+                WHERE user_id = %s AND date BETWEEN %s AND %s;
+            """, (user_id, start_date, end_date))
             result_success_translations = cursor.fetchall()          
             columns_success = [desc[0] for desc in cursor.description]
             df_success = pd.DataFrame(result_success_translations, columns=columns_success)
 
             cursor.execute("""
                 SELECT sentence_id, score FROM bt_3_detailed_mistakes
-                WHERE user_id = %s;
-            """, (user_id, ))
+                WHERE user_id = %s AND added_data BETWEEN %s AND %s;
+            """, (user_id, start_date, end_date ))
             
             result_mistakes = cursor.fetchall()          
             columns_mistakes = [desc[0] for desc in cursor.description]
@@ -75,8 +75,8 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
 
             cursor.execute("""
                 SELECT date, id, session_id, user_id, id_for_mistake_table FROM bt_3_daily_sentences
-                WHERE user_id = %s;
-            """, (user_id, ))
+                WHERE user_id = %s AND date BETWEEN %s AND %s;
+            """, (user_id, start_date, end_date))
 
             result_sentences = cursor.fetchall()
             column_sentences = [desc[0] for desc in cursor.description]
@@ -104,7 +104,4 @@ async def load_data_for_analytics(user_id: int, period: str = 'week') -> pd.Data
     }
 
 
-if __name__ == "__main__":
-    dfs = asyncio.run(load_data_for_analytics(117649764))
-    print(dfs["translations"].head())
 

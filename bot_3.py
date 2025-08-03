@@ -1,7 +1,7 @@
 import os
-import logging
 import openai
 from openai import OpenAI
+import logging
 import psycopg2
 import datetime
 from datetime import datetime, time
@@ -21,324 +21,28 @@ from telegram.ext import CallbackContext
 from googleapiclient.discovery import build
 from telegram.error import TelegramError
 from telegram.helpers import escape_markdown
-import anthropic
-from anthropic import AsyncAnthropic
 from telegram.error import TimedOut, BadRequest
 import tempfile
 import sys
-import livekit.api
+import livekit.api # Нужен для LiveKit комнат
 from google.cloud import texttospeech
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 from pydub import AudioSegment
 import io
-import livekit.api
 from datetime import datetime
 import logging
 import sys
+from backend.openai_manager import client, get_or_create_openai_resources, system_message # Теперь импортируем client и system_message
+from backend.database import init_db
+from user_analytics import prepare_aggregate_data_by_period_and_draw_analytic_for_user, aggregate_data_for_charts, create_analytics_figure_async
+from load_data_from_db import load_data_for_analytics 
+from users_comparison_analytics import create_comparison_report_async
+from dateutil.relativedelta import relativedelta 
+from datetime import date, timedelta
 
 application = None
-global_assistants_cache = {}
-
-
-client = OpenAI(timeout=60)
-
-system_message = {
-    "check_translation": """
-    You are a strict and professional German language teacher tasked with evaluating translations from Russian to German. Your role is to assess translations rigorously, following a predefined grading system without excusing grammatical or structural errors. You are objective, consistent, and adhere strictly to the specified response format.
-
-    Core Responsibilities:
-
-    1. Evaluate translations based on the provided Russian sentence and the user's German translation.
-    Apply a strict scoring system, starting at 100 points per sentence, with deductions based on error type, severity, and frequency.
-    Ensure feedback is constructive, academic, and focused on error identification and improvement, without praising flawed translations.
-    Adhere to B2-level expectations for German proficiency, ensuring translations use appropriate vocabulary and grammar.
-    Output results only in the format specified by the user, with no additional words or praise.
-    Input Format:
-    You will receive the following in the user message:
-
-    Original sentence (Russian)
-    User's translation (German)
-    
-    Scoring Principles:
-
-    Start at 100 points per sentence.
-    Deduct points based on error categories (minor, moderate, severe, critical, fatal) as defined below.
-    Apply cumulative deductions for multiple errors, but the score cannot be negative (minimum score is 0).
-    Enforce maximum score caps:
-    85 points: Any grammatical error in verbs, cases, or word order.
-    70 points: Two or more major grammatical or semantic errors.
-    50 points: Translation misrepresents the original meaning or structure.
-    0 points: **EMPTY OR COMPLETELY UNRELATED TRANSLATION**.
-    Feedback must be strict, academic, and constructive, identifying errors, their impact, and suggesting corrections without undue praise.
-    Acceptable Variations (No Deductions):
-
-    Minor stylistic variations (e.g., "glücklich" vs. "zufrieden" for "счастливый" if contextually appropriate).
-    Natural word order variations (e.g., "Gestern wurde das Buch gelesen" vs. "Das Buch wurde gestern gelesen").
-    Cultural adaptations for naturalness (e.g., "взять на заметку" as "zur Kenntnis nehmen").
-    Error Categories and Deductions:
-
-    Minor Mistakes (1–5 Points per Issue):
-    Minor stylistic inaccuracy: Correct but slightly unnatural word choice (e.g., "Er hat viel Freude empfunden" instead of "Er war sehr froh" for "Он был очень рад"). Deduct 2–3 points.
-    Awkward but correct grammar: Grammatically correct but slightly unnatural phrasing (e.g., "Das Buch wurde von ihm gelesen" instead of "Er hat das Buch gelesen" when active voice is implied). Deduct 2–4 points.
-    Minor spelling errors: Typos not affecting meaning (e.g., "Biodiversifität" instead of "Biodiversität"). Deduct 1–2 points.
-    Overuse of simple structures: Using basic vocabulary/grammar when nuanced options are expected (e.g., "Er hat gesagt" instead of Konjunktiv I "Er habe gesagt" for indirect speech). Deduct 3–5 points.
-    Behavior: Identify the issue, explain why it’s suboptimal, suggest a natural alternative. Cap deductions at 15 points for multiple minor errors per sentence.
-    
-    Moderate Mistakes (6–15 Points per Issue):
-    Incorrect word order causing confusion: Grammatically correct but disrupts flow (e.g., "Im Park gestern spielte er" instead of "Gestern spielte er im Park" for "Вчера он играл в парке"). Deduct 6–10 points.
-    Poor synonym choice: Synonyms altering tone/register (e.g., "Er freute sich sehr" instead of "Er war begeistert" for "Он был в восторге"). Deduct 8–12 points.
-    Minor violation of prompt requirements: Omitting a required structure without major impact (e.g., using "oder" instead of "entweder…oder" for "либо…либо"). Deduct 10–15 points.
-    Inconsistent register: Overly formal/informal language (e.g., "Er hat Bock darauf" instead of "Er freut sich darauf" for "Он с нетерпением ждёт"). Deduct 6–10 points.
-    Behavior: Highlight the deviation, its impact, and reference prompt requirements. Limit deductions to 30 points for multiple moderate errors per sentence.
-    
-    Severe Mistakes (16–30 Points per Issue):
-    Incorrect article/case/gender: Errors not critically altering meaning (e.g., "Der Freund" instead of "Die Freundin" for "Подруга"). Deduct 16–20 points.
-    Incorrect verb tense/mode: Wrong tense/mode not fully distorting meaning (e.g., "Er geht" instead of Konjunktiv II "Er ginge" for "Если бы он пошёл"). Deduct 18–25 points.
-    Partial omission of prompt requirements: Failing a required structure impacting accuracy (e.g., "Er baute das Haus" instead of "Das Haus wurde gebaut" for "Дом был построен"). Deduct 20–30 points.
-    Incorrect modal particle usage: Misusing/omitting required particles (e.g., omitting "doch" in "Das ist doch klar" for "Это же очевидно"). Deduct 16–22 points.
-    Behavior: Apply 85-point cap for verb/case/word order errors. Specify the rule violated, quantify impact, and suggest corrections.
-    
-    Critical Errors (31–50 Points per Issue):
-    Grammatical errors distorting meaning: Wrong verb endings/cases/agreement misleading the reader (e.g., "Er hat das Buch gelesen" instead of "Das Buch wurde gelesen" for "Книга была прочитана"). Deduct 31–40 points.
-    Structural change: Changing required structure (e.g., active instead of passive). Deduct 35–45 points.
-    Wrong subjunctive use: Incorrect/missing Konjunktiv I/II (e.g., "Er sagt" instead of "Er habe gesagt" for "Он сказал"). Deduct 35–50 points.
-    Major vocabulary errors: False friends/wrong terms (e.g., "Gift" instead of "Giftstoff" for "Яд"). Deduct 31–40 points.
-    Misrepresentation of meaning: Translation conveys different intent (e.g., "Er ging nach Hause" instead of "Er blieb zu Hause" for "Он остался дома"). Deduct 40–50 points.
-    Multiple major errors: Two or more severe errors. Deduct 45–50 points.
-    Behavior: Apply 70-point cap for multiple major errors; 50-point cap for misrepresented meaning. Provide detailed error breakdown and corrections.
-    
-    Fatal Errors (51–100 Points per Issue):
-    Incomprehensible translation: Nonsense or unintelligible (e.g., "Das Haus fliegt im Himmel" for "Дом был построен"). Deduct 51–80 points.
-    Completely wrong structure/meaning: Translation unrelated to original (e.g., "Er liebt Katzen" for "Он ушёл домой"). Deduct 51–80 points.
-    
-    Empty translation: No translation provided. Deduct 100 points.
-    COMPLETELY UNRELATED TRANSLATION: Deduct 100 points.
-
-    Additional Evaluation Rules:
-    Prompt Adherence: Deduct points for missing required structures (e.g., passive voice, Konjunktiv II, double conjunctions) based on severity (minor: 10–15 points; severe: 20–30 points; critical: 35–50 points).
-    Contextual Consistency: Deduct 5–15 points for translations breaking the narrative flow of the original Russian story.
-    B2-Level Appropriateness: Deduct 5–10 points for overly complex/simple vocabulary or grammar not suited for B2 learners.
-
-    2. **Identify all mistake categories**  
-    (you may select multiple categories if needed, but STRICTLY from the enumeration below.  
-    Return them as a single comma-separated string, without explanations or formatting):
-    Nouns, Cases, Verbs, Tenses, Adjectives, Adverbs, Conjunctions, Prepositions, Moods, Word Order, Other mistake
-
-    3. **Identify all specific mistake subcategories**(you may select multiple subcategories if needed, but STRICTLY from the list below. Return them as a single comma-separated string, without grouping or explanations):
-    Gendered Articles, Pluralization, Compound Nouns, Declension Errors,  
-    Nominative, Accusative, Dative, Genitive, Akkusativ + Preposition, Dative + Preposition, Genitive + Preposition,  
-    Placement, Conjugation, Weak Verbs, Strong Verbs, Mixed Verbs, Separable Verbs, Reflexive Verbs, Auxiliary Verbs, Modal Verbs, Verb Placement in Subordinate Clause,  
-    Present, Past, Simple Past, Present Perfect, Past Perfect, Future, Future 1, Future 2, Plusquamperfekt Passive, Futur 1 Passive, Futur 2 Passive,  
-    Endings, Weak Declension, Strong Declension, Mixed Declension, Comparative, Superlative, Incorrect Adjective Case Agreement,  
-    Multiple Adverbs, Incorrect Adverb Usage,  
-    Coordinating, Subordinating, Incorrect Use of Conjunctions,  
-    Accusative, Dative, Genitive, Two-way, Incorrect Preposition Usage,  
-    Indicative, Declarative, Interrogative, Imperative, Subjunctive 1, Subjunctive 2,  
-    Standard, Inverted, Verb-Second Rule, Position of Negation, Incorrect Order in Subordinate Clause, Incorrect Order with Modal Verb
-
-    4. **Provide the correct translation.**  
-
-    ---
-
-    **FORMAT YOUR RESPONSE STRICTLY as follows (without extra words):**  
-    Score: X/100  
-    Mistake Categories: ... (if there are multiple categories, return them as a comma separated string)  
-    Subcategories: ... (if there are multiple subcategories, return them as a comma separated string)   
-    Correct Translation: ...  
-
-""",
-"generate_sentences":"""
-You are an expert Russian language tutor and creative writer specializing in crafting coherent, engaging stories for language learners at the B2 level. 
-Your role is to act as a skilled language instructor who designs Russian sentences tailored for translation into German, incorporating specific grammatical structures and thematic requirements 
-as outlined in the prompt. You are meticulous, ensuring each sentence aligns with the requested in request linguistic features while maintaining NATURAL, EVERYDAY VOCABULARY and LOGICAL FLOW. 
-Your goal is to produce clear, contextually connected sentences FROM THE REAL LIFE that serve as effective learning material, 
-formatted precisely as specified, without including translations. 
-You are a reliable guide, prioritizing accuracy, creativity, and adherence to the user’s detailed instructions.
-
-Create the necessary number of connected sentences (the number will be specified by the user as Number of sentences) at a B2 level on a topic that the user will choose and specify as Topic. 
-Sentences must be in Russian language for translation into German.
-
-Requirements:
-
-Connect sentences into one logical story.
-Use passive voice and Konjunktiv II in at least one sentence.
-Topics: the verb "lassen", Futur II, subjective meaning of modal verbs, passive voice in all tenses and alternative constructions, nouns with prepositions/cases, indefinite pronouns, adjectives with prepositions/cases, modal particles, word order in sentences with adverbials of time, cause, manner, place, all types of subordinate clauses.
-Use Konjunktiv I for indirect speech.
-Include correlative conjunctions (entweder...oder, zwar...aber, nicht nur...sondern auch, sowohl...als auch, weder...noch, je...desto).
-Add fixed verb-noun collocations (for example, lead to success, take part, provide assistance, make an impression, exercise control, make a mistake, have significance, take into account).
-Each sentence should be on a separate line.
-DO NOT add translation! Only the original Russian sentences.
-Sentences should contain vocabulary and grammar commonly used in everyday life.
-
-Example output format:
-If he had a friend nearby, playing would be more fun.
-Knowing that he would soon need to go home, he tried to use every minute.
-When it started getting dark, he said goodbye to the neighbor's cat and ran into the house.
-After doing his homework, he went to bed thinking about tomorrow.
-""", 
-"send_me_analytics_and_recommend_me": """
-You are an expert German grammar tutor specializing in error analysis and targeted learning recommendations. 
-Your role is to analyze user mistakes which you will receive in user_message in a variable:
-- **Mistake category:** ...
-- **First subcategory:** ...
-- **Second subcategory:** ...
-
-Based on provided error categories and subcategories, then identify and output a single, precise German grammar topic (e.g., "Plusquamperfekt") 
-for the user to study. 
-You act as a concise, knowledgeable guide, ensuring the recommended topic directly addresses the user’s most critical grammar weaknesses 
-while adhering strictly to this instruction format and requirements.
-
-**Provide only one word which describes the user's mistake the best. Give back inly one word or short phrase.**
-""",
-"check_translation_with_claude": """
-You are an expert in Russian and German languages, a professional translator, and a German grammar instructor.
-
-Your task is to analyze the student's translation from Russian to German and provide detailed feedback according to the following criteria:
-
-❗️ Important: Do NOT repeat the original sentence or the translation in your response. Only provide conclusions and explanations. LANGUAGE OF CAPTIONS: ENGLISH. LANGUAGE OF EXPLANATIONS: GERMAN.
-
-Analysis Criteria:
-1. Error Identification:
-
-    Identify the main errors and classify each error into one of the following categories:
-
-        Grammar (e.g., noun cases, verb tenses, prepositions, syntax)
-
-        Vocabulary (e.g., incorrect word choice, false friends)
-
-        Style (e.g., formality, clarity, tone)
-
-2. Grammar Explanation:
-
-    Explain why the grammatical structure is incorrect.
-
-    Provide the corrected form.
-
-    If the error concerns verb usage or prepositions, specify the correct form and proper usage.
-
-3. Alternative Sentence Construction:
-
-    Suggest one alternative version of the sentence.
-
-    Note: Only provide the alternative sentence without explanation.
-
-4. Synonyms:
-
-    Suggest up to two synonyms for incorrect or less appropriate words.
-
-    Format: Original Word: …
-    Possible Synonyms: …
-
-🔎 Important Notes:
-Follow the format exactly as specified.
-
-Provide objective, constructive feedback without personal comments.
-
-Avoid introductory or summarizing phrases (e.g., "Here’s my analysis...").
-
-Keep the response clear, concise, and structured.
-
-Provided Information:
-You will receive:
-Original Sentence (in Russian)
-User's Translation (in German)
-
-Response Format (STRICTLY FOLLOW THIS):
-
-Error 1: (OBLIGATORY: Brief description of the grammatical, lexical, or stylistic error)
-Error 2: (OBLIGATORY: Brief description of the grammatical, lexical, or stylistic error)
-Error 3: (OBLIGATORY: Brief description of the grammatical, lexical, or stylistic error)
-Correct Translation: …
-Grammar Explanation:
-Alternative Sentence Construction: …
-Synonyms:
-Original Word: …
-Possible Synonyms: … (maximum two)
-""",
-"recheck_translation": """
-    You are a strict and professional German language teacher tasked with evaluating translations from Russian to German. Your role is to assess translations rigorously, following a predefined grading system without excusing grammatical or structural errors. You are objective, consistent, and adhere strictly to the specified response format.
-
-    Core Responsibilities:
-
-    1. Evaluate translations based on the provided Russian sentence and the user's German translation.
-    Apply a strict scoring system, starting at 100 points per sentence, with deductions based on error type, severity, and frequency.
-    Ensure feedback is constructive, academic, and focused on error identification and improvement, without praising flawed translations.
-    Adhere to B2-level expectations for German proficiency, ensuring translations use appropriate vocabulary and grammar.
-    Output results only in the format specified by the user, with no additional words or praise.
-    Input Format:
-    You will receive the following in the user message:
-
-    Original sentence (Russian)
-    User's translation (German)
-    
-    Scoring Principles:
-
-    Start at 100 points per sentence.
-    Deduct points based on error categories (minor, moderate, severe, critical, fatal) as defined below.
-    Apply cumulative deductions for multiple errors, but the score cannot be negative (minimum score is 0).
-    Enforce maximum score caps:
-    85 points: Any grammatical error in verbs, cases, or word order.
-    70 points: Two or more major grammatical or semantic errors.
-    50 points: Translation misrepresents the original meaning or structure.
-    0 points: **EMPTY OR COMPLETELY UNRELATED TRANSLATION**.
-    Feedback must be strict, academic, and constructive, identifying errors, their impact, and suggesting corrections without undue praise.
-    Acceptable Variations (No Deductions):
-
-    Minor stylistic variations (e.g., "glücklich" vs. "zufrieden" for "счастливый" if contextually appropriate).
-    Natural word order variations (e.g., "Gestern wurde das Buch gelesen" vs. "Das Buch wurde gestern gelesen").
-    Cultural adaptations for naturalness (e.g., "взять на заметку" as "zur Kenntnis nehmen").
-    Error Categories and Deductions:
-
-    Minor Mistakes (1–5 Points per Issue):
-    Minor stylistic inaccuracy: Correct but slightly unnatural word choice (e.g., "Er hat viel Freude empfunden" instead of "Er war sehr froh" for "Он был очень рад"). Deduct 2–3 points.
-    Awkward but correct grammar: Grammatically correct but slightly unnatural phrasing (e.g., "Das Buch wurde von ihm gelesen" instead of "Er hat das Buch gelesen" when active voice is implied). Deduct 2–4 points.
-    Minor spelling errors: Typos not affecting meaning (e.g., "Biodiversifität" instead of "Biodiversität"). Deduct 1–2 points.
-    Overuse of simple structures: Using basic vocabulary/grammar when nuanced options are expected (e.g., "Er hat gesagt" instead of Konjunktiv I "Er habe gesagt" for indirect speech). Deduct 3–5 points.
-    Behavior: Identify the issue, explain why it’s suboptimal, suggest a natural alternative. Cap deductions at 15 points for multiple minor errors per sentence.
-    
-    Moderate Mistakes (6–15 Points per Issue):
-    Incorrect word order causing confusion: Grammatically correct but disrupts flow (e.g., "Im Park gestern spielte er" instead of "Gestern spielte er im Park" for "Вчера он играл в парке"). Deduct 6–10 points.
-    Poor synonym choice: Synonyms altering tone/register (e.g., "Er freute sich sehr" instead of "Er war begeistert" for "Он был в восторге"). Deduct 8–12 points.
-    Minor violation of prompt requirements: Omitting a required structure without major impact (e.g., using "oder" instead of "entweder…oder" for "либо…либо"). Deduct 10–15 points.
-    Inconsistent register: Overly formal/informal language (e.g., "Er hat Bock darauf" instead of "Er freut sich darauf" for "Он с нетерпением ждёт"). Deduct 6–10 points.
-    Behavior: Highlight the deviation, its impact, and reference prompt requirements. Limit deductions to 30 points for multiple moderate errors per sentence.
-    
-    Severe Mistakes (16–30 Points per Issue):
-    Incorrect article/case/gender: Errors not critically altering meaning (e.g., "Der Freund" instead of "Die Freundin" for "Подруга"). Deduct 16–20 points.
-    Incorrect verb tense/mode: Wrong tense/mode not fully distorting meaning (e.g., "Er geht" instead of Konjunktiv II "Er ginge" for "Если бы он пошёл"). Deduct 18–25 points.
-    Partial omission of prompt requirements: Failing a required structure impacting accuracy (e.g., "Er baute das Haus" instead of "Das Haus wurde gebaut" for "Дом был построен"). Deduct 20–30 points.
-    Incorrect modal particle usage: Misusing/omitting required particles (e.g., omitting "doch" in "Das ist doch klar" for "Это же очевидно"). Deduct 16–22 points.
-    Behavior: Apply 85-point cap for verb/case/word order errors. Specify the rule violated, quantify impact, and suggest corrections.
-    
-    Critical Errors (31–50 Points per Issue):
-    Grammatical errors distorting meaning: Wrong verb endings/cases/agreement misleading the reader (e.g., "Er hat das Buch gelesen" instead of "Das Buch wurde gelesen" for "Книга была прочитана"). Deduct 31–40 points.
-    Structural change: Changing required structure (e.g., active instead of passive). Deduct 35–45 points.
-    Wrong subjunctive use: Incorrect/missing Konjunktiv I/II (e.g., "Er sagt" instead of "Er habe gesagt" for "Он сказал"). Deduct 35–50 points.
-    Major vocabulary errors: False friends/wrong terms (e.g., "Gift" instead of "Giftstoff" for "Яд"). Deduct 31–40 points.
-    Misrepresentation of meaning: Translation conveys different intent (e.g., "Er ging nach Hause" instead of "Er blieb zu Hause" for "Он остался дома"). Deduct 40–50 points.
-    Multiple major errors: Two or more severe errors. Deduct 45–50 points.
-    Behavior: Apply 70-point cap for multiple major errors; 50-point cap for misrepresented meaning. Provide detailed error breakdown and corrections.
-    
-    Fatal Errors (51–100 Points per Issue):
-    Incomprehensible translation: Nonsense or unintelligible (e.g., "Das Haus fliegt im Himmel" for "Дом был построен"). Deduct 51–80 points.
-    Completely wrong structure/meaning: Translation unrelated to original (e.g., "Er liebt Katzen" for "Он ушёл домой"). Deduct 51–80 points.
-    
-    Empty translation: No translation provided. Deduct 100 points.
-    COMPLETELY UNRELATED TRANSLATION: Deduct 100 points.
-
-    Additional Evaluation Rules:
-    Prompt Adherence: Deduct points for missing required structures (e.g., passive voice, Konjunktiv II, double conjunctions) based on severity (minor: 10–15 points; severe: 20–30 points; critical: 35–50 points).
-    Contextual Consistency: Deduct 5–15 points for translations breaking the narrative flow of the original Russian story.
-    B2-Level Appropriateness: Deduct 5–10 points for overly complex/simple vocabulary or grammar not suited for B2 learners.
-
-    ---
-
-    **FORMAT YOUR RESPONSE STRICTLY as follows (without extra words):**  
-    Score: X/100
-"""
-}
 
 
 # === Логирование ===
@@ -357,52 +61,8 @@ load_dotenv(dotenv_path=Path(__file__).parent/".env") # Загружаем пе�
 # os.getenv(...) читает эти значения.
 # Ты вручную регистрируешь это в переменных окружения процесса
 # os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+
 success=load_dotenv(dotenv_path=Path(__file__).parent/".env")
-
-
-def get_assistant_id_from_db(task_name:str) -> str | None:
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT assistant_id FROM assistants
-                WHERE task_name = %s;
-            """, (task_name, ))
-            result = cursor.fetchone()
-            return result[0] if result else None
-
-def save_assistant_id_to_db(task_name: str, assistant_id: str) -> None:
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO assistants (task_name, assistant_id) 
-                VALUES (%s,%s) ON CONFLICT (task_name) DO UPDATE 
-                SET assistant_id = EXCLUDED.assistant_id;
-            """, (task_name,assistant_id))
-
-
-def get_or_create_openai_resources(system_instruction: str, task_name: str):
-
-    # Сначала пробуем получить assistant_id из базы
-    assistant_id = get_assistant_id_from_db(task_name)
-    if assistant_id:
-        global_assistants_cache[task_name] = assistant_id
-        logging.info(f"✅ Используется assistant из базы для '{task_name}': {assistant_id}")
-        return assistant_id, None
-    # ✅ # Если не найден в базе — создаём нового
-    try:
-        assistant = client.beta.assistants.create(
-        name = "MyAssistant for " + task_name,
-        model="gpt-4.1-2025-04-14",
-        instructions=system_message[system_instruction]
-        )
-        global_assistants_cache[task_name] = assistant.id
-        save_assistant_id_to_db(task_name, assistant.id)
-        logging.info(f"🤖 Новый assistant создан для задачи '{task_name}': {assistant.id}")
-        return assistant.id, None
-    
-    except Exception as e:
-        logging.error(f"❌ Ошибка при создании assistant для задачи '{task_name}': {e}")
-        raise # или можно вернуть None, None
 
 
 # Buttons in Telegramm
@@ -512,14 +172,11 @@ BOT_GROUP_CHAT_ID_Deutsch = int(BOT_GROUP_CHAT_ID_Deutsch)
 # else:
 #     logging.error("❌ Ошибка: DeepSeek_API_Key не задан. Проверь переменные окружения!")
 
-# === Настройка Open AI API ===
-openai.api_key = os.getenv("OPENAI_API_KEY")
-if openai.api_key:
-    logging.info("✅ OPENAI_API_KEY успешно загружен!")
-else:
-    logging.error("❌ OPENAI_API_KEY не загружен! Проверьте переменные окружения.")
 
 # LiveKit конфигурация
+# Они нужны, чтобы  приложение имело право создавать комнаты и генерировать токены доступа.
+# LIVEKIT_URL: Это WebSocket-адрес вашего сервера LiveKit. Именно по этому адресу будут подключаться и ваш агент (agent.py), и браузер пользователя (client.html).
+# CLIENT_HOST: Это доменное имя, где размещен ваш client.html. Используется для построения финальной ссылки-приглашения.
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 LIVEKIT_URL = "wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud"
@@ -674,12 +331,12 @@ def initialise_database():
                     user_id BIGINT NOT NULL,
                     id_for_mistake_table INT NOT NULL,
                     attempt INT DEFAULT 1,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     
                     CONSTRAINT unique_attempt UNIQUE (user_id, id_for_mistake_table)
                          
                 );
             """)
-
 
             # таблица для хранения id assistant API Open AI
             curr.execute("""
@@ -850,9 +507,21 @@ async def handle_button_click(update: Update, context: CallbackContext):
         logging.info(f"📌 Пользователь {update.message.from_user.id} нажал кнопку '📜 Проверить перевод'. Запускаем проверку.")
         await check_translation_from_text(update, context)  # ✅ Теперь сразу запускаем проверку переводов
     elif text == "🎙 Начать урок":
-        await start_lesson(update, context)
-    elif text == "👥 Групповой звонок":
-        await group_call(update, context)
+        frontend_url = "https://1740f55ab7bd.ngrok-free.app"
+        message_text = (
+            "You Room for conversation is ready\n\n"
+            f'Press <a href="{frontend_url}">the link</a>, to connect the room'
+        )
+ 
+        await update.message.reply_text(
+        text=message_text,
+        parse_mode='HTML'
+        )
+
+
+        #await start_lesson(update, context)
+    #elif text == "👥 Групповой звонок":
+        #await group_call(update, context)
 
 
 # 🔹 **Функция, которая запускает проверку переводов**
@@ -1395,8 +1064,8 @@ async def generate_sentences(user_id, num_sentances, context: CallbackContext = 
     #client_deepseek = OpenAI(api_key = api_key_deepseek,base_url="https://api.deepseek.com")
     
     task_name = f"generate_sentences"
-    system_instruction = f"generate_sentences"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction, task_name)
+    system_instruction_key = f"generate_sentences"
+    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
             
     # ✅ Создаём новый thread каждый раз
     thread = client.beta.threads.create()
@@ -1499,8 +1168,8 @@ async def generate_sentences(user_id, num_sentances, context: CallbackContext = 
 async def recheck_score_only(original_text, user_translation):
 
     task_name = "recheck_translation"
-    system_instruction = "recheck_translation"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction, task_name)
+    system_instruction_key = "recheck_translation"
+    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
             
     # ✅ Создаём новый thread каждый раз
     thread = client.beta.threads.create()
@@ -1563,10 +1232,10 @@ async def recheck_score_only(original_text, user_translation):
 
 
 async def check_translation(original_text, user_translation, update: Update, context: CallbackContext, sentence_number):
-    client_recheck = openai.AsyncOpenAI(api_key=openai.api_key)
+
     task_name = f"check_translation"
-    system_instruction = f"check_translation"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction, task_name)
+    system_instruction_key = f"check_translation"
+    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
             
     # ✅ Создаём новый thread каждый раз
     thread = client.beta.threads.create()
@@ -1863,8 +1532,8 @@ async def handle_explain_request(update: Update, context: CallbackContext):
 #✅ Explain with Claude
 async def check_translation_with_claude(original_text, user_translation, update, context):
     task_name = f"check_translation_with_claude"
-    system_instruction = f"check_translation_with_claude"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction, task_name)
+    system_instruction_key = f"check_translation_with_claude"
+    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
             
     # ✅ Создаём новый thread каждый раз
     thread = client.beta.threads.create()
@@ -1942,7 +1611,7 @@ async def check_translation_with_claude(original_text, user_translation, update,
                 print("❌ Ошибка: Claude вернул пустой ответ. We will try one more time in 5 seconds")
                 await asyncio.sleep(5)
         
-        except anthropic.APIError as e:
+        except Exception as e:
             logging.error(f"❌ API Error from Claude: {e}")
             # Если ошибка действительно критическая — можно добавить проверку и выйти из цикла
             if "authentication" in str(e).lower() or "invalid token" in str(e).lower():
@@ -2292,11 +1961,14 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
 
                     # Если мы не набрали 85 Баллов то необходимо увел attempt 
                     cursor.execute("""
-                        INSERT INTO bt_3_attempts (user_id, id_for_mistake_table)
-                        VALUES (%s, %s)
+                        INSERT INTO bt_3_attempts (user_id, id_for_mistake_table, timestamp)
+                        VALUES (%s, %s, NOW())
                         ON CONFLICT (user_id, id_for_mistake_table)
-                        DO UPDATE SET attempt = bt_3_attempts.attempt + 1;
+                        DO UPDATE SET 
+                            attempt = bt_3_attempts.attempt + 1,
+                            timestamp= NOW();
                     """, (user_id, id_for_mistake_table))
+                    
                     conn.commit()
 
                 continue  # не идём дальше
@@ -2648,8 +2320,8 @@ def escape_html_with_bold(text):
 async def send_me_analytics_and_recommend_me(context: CallbackContext):
     #client = openai.AsyncOpenAI(api_key=openai.api_key)
     task_name = f"send_me_analytics_and_recommend_me"
-    system_instruction = f"send_me_analytics_and_recommend_me"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction, task_name)
+    system_instruction_key = f"send_me_analytics_and_recommend_me"
+    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
             
 
     #get all user_id's from _DB to itterate over them and send them recommendations
@@ -3362,75 +3034,195 @@ async def get_yesterdays_mistakes_for_audio_message(context: CallbackContext):
 # atexit.register(cleanup_creds_file)
 
 
-
-# async def create_room(user_id, username, is_group=False):
+# --- Функции LiveKit Room, перенесенные сюда ---
+# Они были в agent.py, но логичнее управлять созданием ссылок из Telegram-бота.
+# Назначение: Безопасно создать уникальную комнату на сервере LiveKit и 
+# сгенерировать персональный токен доступа для конкретного пользователя.
+# async def create_livekit_room(user_id, username, is_group=False):
 #     """Создаёт комнату LiveKit и возвращает ссылку."""
 #     try:
-#         livekit_api = livekit.api.LiveKitAPI(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL)
-#         room_name = f"{'group-' if is_group else ''}mentor-{user_id}-{int(datetime.now().timestamp())}"
-#         room = await livekit_api.room.create(room_name=room_name)
-
-#         # Генерация токена
-#         token = livekit.api.AccessToken(
-#             api_key=LIVEKIT_API_KEY,
-#             api_secret=LIVEKIT_API_SECRET,
-#             identity=str(user_id),
-#             name=username,
-#             grant=livekit.api.VideoGrant(
-#                 room=room_name,
-#                 room_join=True,
-#                 can_publish=True,
-#                 can_subscribe=True
-#             )
-#         ).to_jwt()
-
-#         # Ссылка на клиент
-#         client_url = f"{CLIENT_HOST}/client.html?room_name={room_name}&token={token}"
-#         return client_url, room_name
+#         # Использование async with для корректного управления сессией LiveKitAPI
+#         # async with livekit.api.LiveKitAPI(...) as livekit_api:: Создается клиент для общения с API LiveKit. 
+#         # async with гарантирует, что соединение с API будет корректно закрыто.
+#         async with livekit.api.LiveKitAPI(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL) as livekit_api:
+#             room_name = f"{'group-' if is_group else ''}sales-mentor-{user_id}-{int(datetime.now().timestamp())}"
+            
+#             # Генерация токена с использованием цепочки методов .with_
+#             # .with_identity(str(user_id)): В токен "зашивается" идентификатор пользователя. Именно это значение потом получит ваш агент в on_user_joined как participant.identity. Так агент понимает, КТО именно подключился.
+#             # .with_name(username): Задается отображаемое имя пользователя.
+#             # .with_grants(...): Выдаются права (permissions) пользователю внутри комнаты. room_join: True — разрешает войти, can_publish: True — разрешает транслировать свое аудио/видео.
+#             # .to_jwt(): Все эти данные подписываются вашим секретным ключом и превращаются в длинную, безопасную строку — JSON Web Token (JWT).
+#             token_participant = livekit.api.AccessToken(
+#                 api_key=LIVEKIT_API_KEY,
+#                 api_secret=LIVEKIT_API_SECRET
+#             ).with_identity(str(user_id)) \
+#              .with_name(username) \
+#              .with_grants(livekit.api.VideoGrants( # VideoGrants теперь без identity и name
+#                  room=room_name, # room_name должен быть здесь, как и в оригинале
+#                  room_join=True,
+#                  can_publish=True,
+#                  can_subscribe=True
+#              )).to_jwt()
+#             # Формируется финальная ссылка. Имя комнаты и уникальный токен передаются как параметры в URL. 
+#             # JavaScript на странице client.html прочитает их из адреса и использует для подключения к звонку.
+#             client_url = f"{CLIENT_HOST}/client.html?room_name={room_name}&token={token_participant}"
+#             logging.info(f"✅ Создана ссылка LiveKit: {client_url}")
+#             return client_url, room_name
 #     except Exception as e:
-#         logging.error(f"❌ Ошибка создания комнаты LiveKit: {e}")
+#         logging.error(f"❌ Ошибка при создании ссылки LiveKit комнаты: {e}", exc_info=True)
 #         return None, None
 
-# async def start_lesson(update, context):
+# async def start_lesson(update: Update, context: CallbackContext):
 #     """Обработчик кнопки 'Начать урок'."""
 #     user = update.message.from_user
 #     user_id = user.id
 #     username = user.username or user.first_name
-#     client_url, room_name = await create_room(user_id, username, is_group=False)
+#     # Используем новое имя функции
+#     client_url, room_name = await create_livekit_room(user_id, username, is_group=False) 
+#     link_text = "Join your *personal room*"
 
 #     if client_url:
-#         msg = await update.message.reply_text(
-#             f"Your room is ready for the lesson!\nFollow the Link to start:\n{client_url}"
+#         formatted_message = (
+#             f"You Room for conversation is ready\n"
+#             f'<a href="{html.escape(client_url)}">{escape_html_with_bold(link_text)}</a>'
+#         )
+#         msg = await context.bot.send_message(
+#             chat_id = update.message.chat_id,
+#             text=formatted_message,
+#             parse_mode="HTML",
+#             reply_to_message_id=update.message.message_id
 #         )
 #         add_service_msg_id(context, msg.message_id)
+#         logging.info(f"📩 Отправлена ссылка LiveKit пользователю {user_id}")
 #     else:
-#         msg = await update.message.reply_text("❌ Ошибка создания комнаты. Попробуйте позже.")
+#         msg = await update.message.reply_text("❌ Помилка створення кімнати. Спробуйте пізніше.")
 #         add_service_msg_id(context, msg.message_id)
 
-# async def group_call(update, context):
+# async def group_call(update: Update, context: CallbackContext):
 #     """Обработчик кнопки 'Групповой звонок'."""
 #     user = update.message.from_user
 #     user_id = user.id
 #     username = user.username or user.first_name
-#     client_url, room_name = await create_room(user_id, username, is_group=True)
+#     # Используем новое имя функции
+#     client_url, room_name = await create_livekit_room(user_id, username, is_group=True)
+#     link_text = "Join your *group room*"
+    
 #     if client_url:
-#         msg = await update.message.reply_text(
-#             f"The room for GROUP is ready!\nCome on Board: {client_url}",
-#             chat_id=BOT_GROUP_CHAT_ID_Deutsch
+#         formatted_message = (
+#             f"The Group Room is reasdy\n"
+#             f'<a href="{html.escape(client_url)}">{escape_html_with_bold(link_text)}</a>'
+#         )
+#         msg = await context.bot.send_message(
+#             chat_id=update.message.chat_id,
+#             text = formatted_message,
+#             parse_mode="HTML",
+#             reply_to_message_id=update.message.message_id
 #         )
 #         add_service_msg_id(context, msg.message_id)
+#         logging.info(f"📩 Отправлена групповая ссылка LiveKit пользователю {user_id}")
 #     else:
-#         msg = await update.message.reply_text("❌ Ошибка создания комнаты. Попробуйте позже.")
+#         msg = await update.message.reply_text("❌ Помилка створення кімнати. Спробуйте пізніше.")
 #         add_service_msg_id(context, msg.message_id)
 
 
+def get_date_range(period: str) -> tuple[date, date]:
+    end_date = date.today()
+    start_date = end_date
+    
+    if period == 'day': # Для еженедельного отчёта (последние 7 дней)
+        # если функция будет вызываться в любой другой день но не в воскресенье. У меня в main указано вызов в воскресенье сейчас
+        # weekday() в Python: Понедельник = 0, Воскресенье = 6
+        # Отнимаем от сегодняшней даты количество дней, прошедших с понедельника
+        start_date = end_date - timedelta(days=end_date.weekday())
+    elif period == 'week': # Для ежемесячного отчёта (текущий месяц)
+        start_date = end_date.replace(day=1)
+    elif period == 'month': # Для квартального отчёта (последние 3 месяца)
+        start_date = end_date - relativedelta(months=3)
+    elif period == 'half_year': # Для half-year отчёта (последние 3 месяца)
+        start_date = end_date - relativedelta(months=6)    
+    elif period == 'quarter': # Для годового отчёта (последние 12 месяцев)
+        start_date = end_date - relativedelta(years=1)
+    
+    return start_date, end_date
 
 
+async def send_user_analytics_bar_charts(context: CallbackContext, period="day"): # 'update' parameter removed
+    chat_id = BOT_GROUP_CHAT_ID_Deutsch
+
+    start_date, end_date = get_date_range(period)
+
+    # Send one message before starting the process
+    await context.bot.send_message(chat_id=chat_id, text="🚀 Starting to prepare analytical reports for all active users...")
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as curr: # FIXED: added ()
+                # RECOMMENDATION: Get users who have actually translated something
+                curr.execute("""
+                    SELECT DISTINCT user_id, username
+                    FROM bt_3_translations;
+                """)
+                all_users = curr.fetchall()
+        
+        if not all_users:
+            await context.bot.send_message(chat_id=chat_id, text="No active users found for analysis today.")
+            return
+
+        for user_id, username in all_users:
+            try:
+                # IMPORTANT: Make sure this function accepts user_id and uses it
+                full_user_data = await prepare_aggregate_data_by_period_and_draw_analytic_for_user(user_id, start_date, end_date)
+
+                if not full_user_data.empty:
+                    daily_data = await aggregate_data_for_charts(full_user_data, period="day")
+                    weekly_data = await aggregate_data_for_charts(full_user_data, period="week")
+
+                    print(f"Data for {username} prepared. Drawing plots...")
+                    image_path = await create_analytics_figure_async(daily_data, weekly_data, user_id)
+                    
+                    # FIXED: send_photo method name
+                    await context.bot.send_photo(chat_id=chat_id, photo=open(image_path, 'rb'), caption=f"📊 Analytics for user: {username}")
+                    os.remove(image_path)
+                else:
+                    print(f"⚠️ No data found for analysis for user {username} ({user_id}).")
+
+            except Exception as e:
+                logging.error(f"Error creating individual report for {username} ({user_id}): {e}")
+                # Report the error, but continue the loop for other users
+                await context.bot.send_message(chat_id=chat_id, text=f"❌ Failed to create a report for {username}.")
+
+    except Exception as e:
+        logging.error(f"Critical error during send_user_analytics_bar_charts execution: {e}")
+        # FIXED: added await
+        await context.bot.send_message(chat_id=chat_id, text="❌ A general error occurred while creating reports.")
+
+
+async def send_users_comparison_bar_chart(period, context: CallbackContext):
+    chat_id = BOT_GROUP_CHAT_ID_Deutsch
+
+    start_date, end_date = get_date_range(period)
+    # relativedelta(months=3) создаёт объект, который представляет собой интервал в "3 календарных месяца".
+    # Когда вы вычитаете этот объект из даты, он корректно отсчитывает месяцы назад.
+
+    await context.bot.send_message(chat_id=chat_id, text="Starting preparation of Comparison analytics for all users..." )
+
+    try:
+        image_path = await create_comparison_report_async(period=period, start_date=start_date, end_date=end_date)
+        if image_path:
+            await context.bot.send_photo(chat_id=chat_id, photo=open(image_path, "rb"), caption=f"Users Comparison Analytics for the last {period}")
+            os.remove(image_path)
+        else:
+            print(f"⚠️ No path found for comparison analysis for users.")
+    
+    except Exception as e:
+        logging.error(f"Critical error during users_comparison analytics execution: {e}")
 
 
 
 def main():
     global application
+    # Инициализация базы данных from database.py 
+    init_db()
 
     #defaults = Defaults(timeout=60)  # увеличили таймаут до 60 секунд
     application = Application.builder().token(TELEGRAM_Deutsch_BOT_TOKEN).build()
@@ -3453,10 +3245,14 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT, log_all_messages, block=False), group=2)  # 👈 Добавляем в main()
 
     application.add_error_handler(error_handler)
-
+    
+    # --- НОВЫЕ ОБРАБОТЧИКИ ДЛЯ LIVEKIT КНОПОК ---
+    #application.add_handler(MessageHandler(filters.Regex(r'🎙 Начать урок'), start_lesson)) # Теперь обрабатываем текст кнопки
+    #application.add_handler(MessageHandler(filters.Regex(r'👥 Групповой звонок'), group_call)) # Теперь обрабатываем текст кнопки
+    
     scheduler = BackgroundScheduler()
 
-    def run_async_job(async_func, context=None):
+    def run_async_job(async_func, context=None, *args, **kwargs):
         if context is None:
             context = CallbackContext(application=application)   # Создаем `context`, если его нет
 
@@ -3465,7 +3261,19 @@ def main():
         except RuntimeError:
             loop = asyncio.new_event_loop()  # ❌ В потоке `apscheduler` нет loop — создаем новый
             asyncio.set_event_loop(loop)
-        loop.run_until_complete(async_func(context)) # ✅ Теперь event loop всегда работает
+        loop.run_until_complete(async_func(context, *args, **kwargs)) # ✅ Теперь event loop всегда работает
+
+    # --- ЗАДАЧИ SCHEDULER ИСПОЛЬЗУЮТ НОВУЮ СТРУКТУРУ ---
+    # Мы можем гарантировать, что Sales Assistant создан при запуске бота:
+    try:
+        # Используем get_or_create_openai_resources из openai_manager.py
+        # Обратите внимание: task_name и system_instruction (ключ) одинаковы.
+        get_or_create_openai_resources("sales_assistant_instructions", "sales_assistant")
+        logging.info("✅ Sales Assistant Assistant ID подтвержден/создан при старте бота.")
+    except Exception as e:
+        logging.critical(f"❌ Критическая ошибка: Не удалось инициализировать Sales Assistant при запуске: {e}", exc_info=True)
+        # Если это критично, можно здесь sys.exit(1)
+
 
     # ✅ Добавляем задачу в `scheduler` ДЛЯ УТРА
     print("📌 Добавляем задачу в scheduler...")
@@ -3495,6 +3303,19 @@ def main():
 
     scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=4, minute=15)
 
+    scheduler.add_job(lambda: run_async_job(send_user_analytics_bar_charts, CallbackContext(application=application), period="day"), "cron", hour= 23, minute=2, day_of_week = "wed, fri")
+
+    # планировщик по отправке аналитике:
+    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="day"), "cron", hour=23, minute=2, day_of_week="sun")
+    
+    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="week"), "cron", day="last", hour= 22, minute=2)
+
+    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="month"), "cron", day="last", month="3,6,9,12", hour= 7, minute=2)
+
+    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="half_year"), "cron", day="last", month="6,12", hour= 10, minute=2)
+
+    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="quarter"), "cron", day="last", month="12", hour= 23, minute=2)
+    
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
     application.run_polling()

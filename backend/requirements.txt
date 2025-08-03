@@ -1,0 +1,15 @@
+# LiveKit Agent & Server SDK
+livekit-agents
+livekit-plugins-openai
+livekit-plugins-silero
+livekit
+
+# Web Server (для эндпоинта /token)
+Flask
+Flask-Cors
+
+# Database Connector for PostgreSQL
+psycopg2-binary
+
+# Environment variables
+python-dotenv
