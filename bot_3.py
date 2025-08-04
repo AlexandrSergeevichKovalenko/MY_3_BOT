@@ -3303,7 +3303,7 @@ def main():
 
     scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=4, minute=15)
 
-    scheduler.add_job(lambda: run_async_job(send_user_analytics_bar_charts, CallbackContext(application=application), period="day"), "cron", hour= 20, minute=2, day_of_week = "wed, sun")
+    scheduler.add_job(lambda: run_async_job(send_user_analytics_bar_charts, CallbackContext(application=application), period="day"), "cron", hour= 20, minute=20, day_of_week = "mon, sun")
 
     # планировщик по отправке аналитике:
     scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="day"), "cron", hour=23, minute=2, day_of_week="sun")
