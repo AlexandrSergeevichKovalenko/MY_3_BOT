@@ -150,7 +150,7 @@ async def aggregate_data_for_charts(df: pd.DataFrame, period: str="week") -> pd.
 
     # 2. Додаємо допоміжні стовпці для зручності агрегації
     cleaned_df['is_successful'] = cleaned_df['score_successed'] >= 80
-    cleaned_df['is_unsuccessful'] = cleaned_df['current_score'] > 0
+    cleaned_df['is_unsuccessful'] = cleaned_df['score_successed'] < 80
     total_unsuccessful = cleaned_df['is_unsuccessful'].sum()
     print(total_unsuccessful)
     cleaned_df['attempt_1_success'] = (cleaned_df['is_successful']) & (cleaned_df['attempt_successed'] == 1)
