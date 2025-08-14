@@ -55,7 +55,7 @@ async def prepare_comparison_data(start_date, end_date):
 
     # Определяем список всех метрик, которые нам нужны
     metrics_to_pivot = [
-        'total_sentences_translated', 'successful_translations', 
+        'total_translations', 'successful_translations', 
         'unsuccessful_translations', 'avg_min_per_translation'
     ]
 
@@ -99,7 +99,7 @@ def plot_comparison_chart(ax, pivoted_df, title):
         # 4a. Рассчитываем смещение для текущего пользователя
         offset = bar_width*(i - num_users/2)
         # 4b. Получаем данные (высоту столбиков) ТОЛЬКО для этого пользователя
-        total_sentences = pivoted_df[('total_sentences_translated', user)]
+        total_sentences = pivoted_df[('total_translations', user)]
         successful = pivoted_df[("successful_translations", user)]
         unsuccessful = pivoted_df[("unsuccessful_translations", user)]
         avg_time = pivoted_df[("avg_min_per_translation", user)]

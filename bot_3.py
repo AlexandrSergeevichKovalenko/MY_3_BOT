@@ -3197,7 +3197,7 @@ async def send_user_analytics_bar_charts(context: CallbackContext, period="day")
         await context.bot.send_message(chat_id=chat_id, text="❌ A general error occurred while creating reports.")
 
 
-async def send_users_comparison_bar_chart(period, context: CallbackContext):
+async def send_users_comparison_bar_chart(context: CallbackContext, period):
     chat_id = BOT_GROUP_CHAT_ID_Deutsch
 
     start_date, end_date = get_date_range(period)
@@ -3303,10 +3303,10 @@ def main():
 
     #scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=4, minute=15)
 
-    scheduler.add_job(lambda: run_async_job(send_user_analytics_bar_charts, CallbackContext(application=application), period="day"), "cron", hour= 20, minute=20, day_of_week = "mon, sun")
+    scheduler.add_job(lambda: run_async_job(send_user_analytics_bar_charts, CallbackContext(application=application), period="day"), "cron", hour= 22, minute=39, day_of_week = "sun")
 
     # планировщик по отправке аналитике:
-    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="day"), "cron", hour=23, minute=2, day_of_week="sun")
+    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="day"), "cron", hour=22, minute=40, day_of_week="sun")
     
     scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="week"), "cron", day="last", hour= 22, minute=2)
 
