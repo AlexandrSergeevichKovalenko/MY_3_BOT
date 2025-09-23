@@ -211,3 +211,18 @@ google-cloud-texttospeech==2.25.1
 pydub==0.25.1
 python-dotenv==1.1.0
 
+
+# LiveKit Agent & Server SDK
+livekit
+livekit-agents
+livekit-plugins-openai
+livekit-plugins-silero
+
+# Web Server (для эндпоинта /token)
+Flask
+Flask-Cors
+
+# Environment variables
+python-dotenv
+
+
