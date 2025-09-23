@@ -19,3 +19,6 @@ backend/.env*
 # IDE folders
 .vscode/
 .idea/
+
+part_1_cleaned.txt
+part_2_cleaned.txt
