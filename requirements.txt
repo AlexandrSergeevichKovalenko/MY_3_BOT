@@ -157,7 +157,7 @@ ply==3.11
 prometheus-client==0.14.1
 prompt-toolkit==3.0.43
 proto-plus==1.26.0
-protobuf>=5.26.1,<6.0.0
+protobuf==5.27.2
 psutil==5.9.0
 psycopg2-binary==2.9.10
 ptyprocess==0.7.0
