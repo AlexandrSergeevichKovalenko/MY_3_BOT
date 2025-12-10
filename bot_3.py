@@ -478,6 +478,27 @@ async def send_main_menu(update: Update, context: CallbackContext):
 async def debug_message_handler(update: Update, context: CallbackContext):
     print(f"🔹 Получено сообщение (DEBUG): {update.message.text}")
 
+import requests
+
+def get_ngrok_url():
+    """Возвращает текущий публичный URL ngrok (https)."""
+    try:
+        response = requests.get("http://127.0.0.1:4040/api/tunnels")
+        data = response.json()
+        https_tunnel = next(
+            (tunnel for tunnel in data["tunnels"] if tunnel["public_url"].startswith("https")), 
+            None
+        )
+        if https_tunnel:
+            print(f"🌍 Найден ngrok URL: {https_tunnel['public_url']}")
+            return https_tunnel["public_url"]
+        else:
+            print("⚠️ HTTPS туннель не найден.")
+            return None
+    except Exception as e:
+        print(f"❌ Ошибка при получении ngrok URL: {e}")
+        return None
+
 
 async def handle_button_click(update: Update, context: CallbackContext):
     """Обрабатывает нажатия на кнопки главного меню."""
@@ -506,8 +527,11 @@ async def handle_button_click(update: Update, context: CallbackContext):
     elif text == "📜 Проверить перевод":
         logging.info(f"📌 Пользователь {update.message.from_user.id} нажал кнопку '📜 Проверить перевод'. Запускаем проверку.")
         await check_translation_from_text(update, context)  # ✅ Теперь сразу запускаем проверку переводов
+    
     elif text == "🎙 Начать урок":
-        frontend_url = "https://1740f55ab7bd.ngrok-free.app"
+        #frontend_url = "https://83df2cddf824.ngrok-free.app"
+        dynamic_url = get_ngrok_url()
+        frontend_url = dynamic_url if dynamic_url else "http://localhost:5173"
         message_text = (
             "You Room for conversation is ready\n\n"
             f'Press <a href="{frontend_url}">the link</a>, to connect the room'
