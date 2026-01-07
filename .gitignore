@@ -1,4 +1,13 @@
+# виртуальные окружения
+.venv/
+venv/
+env/
+ENV/
+
+# переменные окружения (секреты)
 .env
+backend/.env
+
 my-project-bot-453023-0fee9fd308c4.json
 alina.py
 find_gropu_id.py
@@ -22,3 +31,39 @@ backend/.env*
 
 part_1_cleaned.txt
 part_2_cleaned.txt
+
+# python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+
+# node
+node_modules/
+frontend/node_modules/
+
+# misc
+.DS_Store
+
+# логи
+*.log
+backend/logs/
+logs/
+
+# =========================
+# OS / IDE
+# =========================
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+
+# =========================
+# Misc
+# =========================
+*.sqlite3
+*.db
