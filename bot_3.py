@@ -41,6 +41,7 @@ from load_data_from_db import load_data_for_analytics
 from users_comparison_analytics import create_comparison_report_async
 from dateutil.relativedelta import relativedelta 
 from datetime import date, timedelta
+from backend.config_mistakes_data import VALID_CATEGORIES, VALID_SUBCATEGORIES, VALID_CATEGORIES_lower, VALID_SUBCATEGORIES_lower
 
 application = None
 
@@ -100,29 +101,29 @@ else:
 API_KEY_NEWS = os.getenv("API_KEY_NEWS")
 
 # ✅ Проверяем, что категория и подкатегория соответствуют утверждённым значениям
-VALID_CATEGORIES = [
-    'Nouns', 'Cases', 'Verbs', 'Tenses', 'Adjectives', 'Adverbs', 
-    'Conjunctions', 'Prepositions', 'Moods', 'Word Order', 'Other mistake'
-]
+# VALID_CATEGORIES = [
+#     'Nouns', 'Cases', 'Verbs', 'Tenses', 'Adjectives', 'Adverbs', 
+#     'Conjunctions', 'Prepositions', 'Moods', 'Word Order', 'Other mistake'
+# ]
 
-VALID_SUBCATEGORIES = {
-    'Nouns': ['Gendered Articles', 'Pluralization', 'Compound Nouns', 'Declension Errors'],
-    'Cases': ['Nominative', 'Accusative', 'Dative', 'Genitive', 'Akkusativ + Preposition', 'Dative + Preposition', 'Genitive + Preposition'],
-    'Verbs': ['Placement', 'Conjugation', 'Weak Verbs', 'Strong Verbs', 'Mixed Verbs', 'Separable Verbs', 'Reflexive Verbs', 'Auxiliary Verbs', 'Modal Verbs', 'Verb Placement in Subordinate Clause'],
-    'Tenses': ['Present', 'Past', 'Simple Past', 'Present Perfect', 'Past Perfect', 'Future', 'Future 1', 'Future 2', 'Plusquamperfekt Passive', 'Futur 1 Passive', 'Futur 2 Passive'],
-    'Adjectives': ['Endings', 'Weak Declension', 'Strong Declension', 'Mixed Declension', 'Placement', 'Comparative', 'Superlative', 'Incorrect Adjective Case Agreement'],
-    'Adverbs': ['Placement', 'Multiple Adverbs', 'Incorrect Adverb Usage'],
-    'Conjunctions': ['Coordinating', 'Subordinating', 'Incorrect Use of Conjunctions'],
-    'Prepositions': ['Accusative', 'Dative', 'Genitive', 'Two-way', 'Incorrect Preposition Usage'],
-    'Moods': ['Indicative', 'Declarative', 'Interrogative', 'Imperative', 'Subjunctive 1', 'Subjunctive 2'],
-    'Word Order': ['Standard', 'Inverted', 'Verb-Second Rule', 'Position of Negation', 'Incorrect Order in Subordinate Clause', 'Incorrect Order with Modal Verb'],
-    'Other mistake': ['Unclassified mistake']
-}
+# VALID_SUBCATEGORIES = {
+#     'Nouns': ['Gendered Articles', 'Pluralization', 'Compound Nouns', 'Declension Errors'],
+#     'Cases': ['Nominative', 'Accusative', 'Dative', 'Genitive', 'Akkusativ + Preposition', 'Dative + Preposition', 'Genitive + Preposition'],
+#     'Verbs': ['Placement', 'Conjugation', 'Weak Verbs', 'Strong Verbs', 'Mixed Verbs', 'Separable Verbs', 'Reflexive Verbs', 'Auxiliary Verbs', 'Modal Verbs', 'Verb Placement in Subordinate Clause'],
+#     'Tenses': ['Present', 'Past', 'Simple Past', 'Present Perfect', 'Past Perfect', 'Future', 'Future 1', 'Future 2', 'Plusquamperfekt Passive', 'Futur 1 Passive', 'Futur 2 Passive'],
+#     'Adjectives': ['Endings', 'Weak Declension', 'Strong Declension', 'Mixed Declension', 'Placement', 'Comparative', 'Superlative', 'Incorrect Adjective Case Agreement'],
+#     'Adverbs': ['Placement', 'Multiple Adverbs', 'Incorrect Adverb Usage'],
+#     'Conjunctions': ['Coordinating', 'Subordinating', 'Incorrect Use of Conjunctions'],
+#     'Prepositions': ['Accusative', 'Dative', 'Genitive', 'Two-way', 'Incorrect Preposition Usage'],
+#     'Moods': ['Indicative', 'Declarative', 'Interrogative', 'Imperative', 'Subjunctive 1', 'Subjunctive 2'],
+#     'Word Order': ['Standard', 'Inverted', 'Verb-Second Rule', 'Position of Negation', 'Incorrect Order in Subordinate Clause', 'Incorrect Order with Modal Verb'],
+#     'Other mistake': ['Unclassified mistake']
+# }
 
 
 # ✅ Нормализуем VALID_CATEGORIES и VALID_SUBCATEGORIES к нижнему регистру для того чтобы пройти нормально проверку в функции log_translation_mistake
-VALID_CATEGORIES_lower = [cat.lower() for cat in VALID_CATEGORIES]
-VALID_SUBCATEGORIES_lower = {k.lower(): [v.lower() for v in values] for k, values in VALID_SUBCATEGORIES.items()}
+# VALID_CATEGORIES_lower = [cat.lower() for cat in VALID_CATEGORIES]
+# VALID_SUBCATEGORIES_lower = {k.lower(): [v.lower() for v in values] for k, values in VALID_SUBCATEGORIES.items()}
 
 # === Подключение к базе данных PostgreSQL ===
 DATABASE_URL = os.getenv("DATABASE_URL_RAILWAY")
@@ -278,7 +279,50 @@ def initialise_database():
                         message TEXT NOT NULL,
                         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
-            """)    
+            """)
+
+            # ✅ Таблица для ошибок пользователя при разговоре с агентом (Расширенная версия)
+            curr.execute("""
+                CREATE TABLE IF NOT EXISTS bt_3_conversation_errors (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        session_id TEXT,          -- Важливо: ID сесії для звіту після дзвінка
+                        
+                        -- Основні дані про помилку
+                        sentence_with_error TEXT NOT NULL,
+                        corrected_sentence TEXT NOT NULL,
+                        
+                        -- Деталізація (як у bt_3_detailed_mistakes)
+                        error_type TEXT,          -- Головна категорія (напр. Grammar)
+                        error_subtype TEXT,       -- Підкатегорія (напр. Present Simple)
+                        explanation_ru TEXT,      -- Пояснення російською
+                        explanation_en TEXT,      -- Пояснення англійською (опціонально)
+                        
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
+            curr.execute("""
+                CREATE INDEX IF NOT EXISTS idx_voice_errors_user
+                ON bt_3_conversation_errors (user_id);
+            """)
+
+            curr.execute("""
+                CREATE INDEX IF NOT EXISTS idx_voice_errors_session
+                ON bt_3_conversation_errors (session_id);
+            """)
+
+            # ✅ Таблица для закладок пользователей (когда пользователь говорит агенту в процессе голосового звонка в комнате что он хочет сохранить эту фразу или слово)
+            curr.execute("""
+                CREATE TABLE IF NOT EXISTS bt_3_bookmarks (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                session_id TEXT,
+                phrase TEXT NOT NULL,
+                context_note TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
 
             # ✅ Таблица daily_sentences
             curr.execute("""
@@ -483,6 +527,7 @@ import requests
 def get_ngrok_url():
     """Возвращает текущий публичный URL ngrok (https)."""
     try:
+        # /api/tunnels — Ngrok по этому адресу отдает список всех активных туннелей в формате JSON.
         response = requests.get("http://127.0.0.1:4040/api/tunnels")
         data = response.json()
         https_tunnel = next(
@@ -498,7 +543,19 @@ def get_ngrok_url():
     except Exception as e:
         print(f"❌ Ошибка при получении ngrok URL: {e}")
         return None
+    
+def get_public_web_url():
+    # 1) Railway/production: берём стабильный URL
+    url = os.getenv("WEB_APP_URL")
+    if url:
+        return url.rstrip("/")  # чтобы не было двойных //
 
+    # 2) Локально (по желанию): fallback
+    ngrok_url = get_ngrok_url()
+    if ngrok_url:
+        return ngrok_url.rstrip("/")
+    
+    return "http://localhost:8000"  # Локальный fallback (если нужно)
 
 async def handle_button_click(update: Update, context: CallbackContext):
     """Обрабатывает нажатия на кнопки главного меню."""
@@ -530,10 +587,9 @@ async def handle_button_click(update: Update, context: CallbackContext):
     
     elif text == "🎙 Начать урок":
         #frontend_url = "https://83df2cddf824.ngrok-free.app"
-        dynamic_url = get_ngrok_url()
-        frontend_url = dynamic_url if dynamic_url else "http://localhost:5173"
+        frontend_url = await asyncio.to_thread(get_public_web_url)
         message_text = (
-            "You Room for conversation is ready\n\n"
+            "Your Room for conversation is ready\n\n"
             f'Press <a href="{frontend_url}">the link</a>, to connect the room'
         )
  
@@ -1089,10 +1145,10 @@ async def generate_sentences(user_id, num_sentances, context: CallbackContext = 
     
     task_name = f"generate_sentences"
     system_instruction_key = f"generate_sentences"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
+    assistant_id, _ = await get_or_create_openai_resources(system_instruction_key, task_name)
             
     # ✅ Создаём новый thread каждый раз
-    thread = client.beta.threads.create()
+    thread = await client.beta.threads.create()
     thread_id = thread.id
 
     chosen_topic = context.user_data.get("chosen_topic", "Random sentences")  # Default: General topic
@@ -1106,30 +1162,30 @@ async def generate_sentences(user_id, num_sentances, context: CallbackContext = 
     #Генерация с помощью GPT     
     for attempt in range(5): # Пробуем до 5 раз при ошибке
         try:
-            client.beta.threads.messages.create(
+            await client.beta.threads.messages.create(
                 thread_id=thread_id,
                 role="user",
                 content=user_message
             )
 
-            run = client.beta.threads.runs.create(
+            run = await client.beta.threads.runs.create(
                 thread_id=thread_id,
                 assistant_id=assistant_id
             )
             while True:
-                run_status = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+                run_status = await client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
                 if run_status.status == "completed":
                     break
                 await asyncio.sleep(1)  # подожди чуть-чуть
             
 
             # Получаем сообщения после завершения run
-            messages = client.beta.threads.messages.list(thread_id=thread_id)
+            messages = await client.beta.threads.messages.list(thread_id=thread_id)
             last_message = messages.data[0]  # обычно последнее — ответ
             sentences = last_message.content[0].text.value
 
             try:
-                client.beta.threads.delete(thread_id=thread_id)
+                await client.beta.threads.delete(thread_id=thread_id)
                 logging.info(f"🗑️ Thread удалён: {thread_id}")
 
             except Exception as e:
@@ -1193,10 +1249,10 @@ async def recheck_score_only(original_text, user_translation):
 
     task_name = "recheck_translation"
     system_instruction_key = "recheck_translation"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
+    assistant_id, _ = await get_or_create_openai_resources(system_instruction_key, task_name)
             
     # ✅ Создаём новый thread каждый раз
-    thread = client.beta.threads.create()
+    thread = await client.beta.threads.create()
     thread_id = thread.id
 
     user_message = f"""
@@ -1207,30 +1263,30 @@ async def recheck_score_only(original_text, user_translation):
     #Генерация с помощью GPT     
     for attempt in range(3): # Пробуем до 3 раз при ошибке
         try:
-            client.beta.threads.messages.create(
+            await client.beta.threads.messages.create(
                 thread_id=thread_id,
                 role="user",
                 content=user_message
             )
 
-            run = client.beta.threads.runs.create(
+            run = await client.beta.threads.runs.create(
                 thread_id=thread_id,
                 assistant_id=assistant_id
             )
             while True:
-                run_status = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+                run_status = await client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
                 if run_status.status == "completed":
                     break
                 await asyncio.sleep(1)  # подожди чуть-чуть
             
 
             # Получаем сообщения после завершения run
-            messages = client.beta.threads.messages.list(thread_id=thread_id)
+            messages = await client.beta.threads.messages.list(thread_id=thread_id)
             last_message = messages.data[0]  # обычно последнее — ответ
             text = last_message.content[0].text.value
 
             try:
-                client.beta.threads.delete(thread_id=thread_id)
+                await client.beta.threads.delete(thread_id=thread_id)
                 logging.info(f"🗑️ Thread удалён: {thread_id}")
 
             except Exception as e:
@@ -1259,10 +1315,10 @@ async def check_translation(original_text, user_translation, update: Update, con
 
     task_name = f"check_translation"
     system_instruction_key = f"check_translation"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
+    assistant_id, _ = await get_or_create_openai_resources(system_instruction_key, task_name)
             
     # ✅ Создаём новый thread каждый раз
-    thread = client.beta.threads.create()
+    thread = await client.beta.threads.create()
     thread_id = thread.id
 
     # Initialize variables with default values at the beginning of the function
@@ -1289,31 +1345,31 @@ async def check_translation(original_text, user_translation, update: Update, con
             logging.info(f" GPT started working on {original_text} sentence. Passing data to GPT model")
             start_time = asyncio.get_running_loop().time()
             
-            client.beta.threads.messages.create(
+            await client.beta.threads.messages.create(
                 thread_id=thread_id,
                 role="user",
                 content=user_message
             )
 
-            run = client.beta.threads.runs.create(
+            run = await client.beta.threads.runs.create(
                 thread_id=thread_id,
                 assistant_id=assistant_id
             )
             while True:
-                run_status = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+                run_status = await client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
                 if run_status.status == "completed":
                     break
                 await asyncio.sleep(2)  # подожди чуть-чуть
 
 
             # Получаем сообщения после завершения run
-            messages = client.beta.threads.messages.list(thread_id=thread_id)
+            messages = await client.beta.threads.messages.list(thread_id=thread_id)
             last_message = messages.data[0]  # обычно последнее — ответ
             collected_text = last_message.content[0].text.value
             logging.info(f"We got a reply from GPT model for sentence {original_text}")
             
             try:
-                client.beta.threads.delete(thread_id=thread_id)
+                await client.beta.threads.delete(thread_id=thread_id)
                 logging.info(f"🗑️ Thread удалён: {thread_id}")
 
             except Exception as e:
@@ -1557,10 +1613,10 @@ async def handle_explain_request(update: Update, context: CallbackContext):
 async def check_translation_with_claude(original_text, user_translation, update, context):
     task_name = f"check_translation_with_claude"
     system_instruction_key = f"check_translation_with_claude"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
+    assistant_id, _ = await get_or_create_openai_resources(system_instruction_key, task_name)
             
     # ✅ Создаём новый thread каждый раз
-    thread = client.beta.threads.create()
+    thread = await client.beta.threads.create()
     thread_id = thread.id
 
     if update.callback_query:
@@ -1594,30 +1650,30 @@ async def check_translation_with_claude(original_text, user_translation, update,
             #     temperature=0.2
             # )
             
-            client.beta.threads.messages.create(
+            await client.beta.threads.messages.create(
                 thread_id=thread_id,
                 role="user",
                 content=user_message
             )
 
-            run = client.beta.threads.runs.create(
+            run = await client.beta.threads.runs.create(
                 thread_id=thread_id,
                 assistant_id=assistant_id
             )
             while True:
-                run_status = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+                run_status = await client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
                 if run_status.status == "completed":
                     break
                 await asyncio.sleep(1)  # подожди чуть-чуть
             
 
             # Получаем сообщения после завершения run
-            messages = client.beta.threads.messages.list(thread_id=thread_id)
+            messages = await client.beta.threads.messages.list(thread_id=thread_id)
             last_message = messages.data[0]  # обычно последнее — ответ
             response = last_message.content[0].text.value
 
             try:
-                client.beta.threads.delete(thread_id=thread_id)
+                await client.beta.threads.delete(thread_id=thread_id)
                 logging.info(f"🗑️ Thread удалён: {thread_id}")
 
             except Exception as e:
@@ -2345,7 +2401,7 @@ async def send_me_analytics_and_recommend_me(context: CallbackContext):
     #client = openai.AsyncOpenAI(api_key=openai.api_key)
     task_name = f"send_me_analytics_and_recommend_me"
     system_instruction_key = f"send_me_analytics_and_recommend_me"
-    assistant_id, _ = get_or_create_openai_resources(system_instruction_key, task_name)
+    assistant_id, _ = await get_or_create_openai_resources(system_instruction_key, task_name)
             
 
     #get all user_id's from _DB to itterate over them and send them recommendations
@@ -2372,7 +2428,7 @@ async def send_me_analytics_and_recommend_me(context: CallbackContext):
                     username = result[0] if result else "Unknown User"
 
                 # ✅ Создаём новый thread каждый раз
-                thread = client.beta.threads.create()
+                thread = await client.beta.threads.create()
                 thread_id = thread.id
 
             # ✅ Запрашиваем тему у OpenAI
@@ -2384,24 +2440,24 @@ async def send_me_analytics_and_recommend_me(context: CallbackContext):
 
             for attempt in range(5):
                 try:
-                    client.beta.threads.messages.create(
+                    await client.beta.threads.messages.create(
                     thread_id=thread_id,
                     role="user",
                     content=user_message
                 )
 
-                    run = client.beta.threads.runs.create(
+                    run = await client.beta.threads.runs.create(
                         thread_id=thread_id,
                         assistant_id=assistant_id
                     )
                     while True:
-                        run_status = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+                        run_status = await client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
                         if run_status.status == "completed":
                             break
                         await asyncio.sleep(1)  # подожди чуть-чуть
 
                     # Получаем сообщения после завершения run
-                    messages = client.beta.threads.messages.list(thread_id=thread_id)
+                    messages = await client.beta.threads.messages.list(thread_id=thread_id)
                     last_message = messages.data[0]  # обычно последнее — ответ
                     topic = last_message.content[0].text.value
 
@@ -2412,7 +2468,7 @@ async def send_me_analytics_and_recommend_me(context: CallbackContext):
                     # topic = response.choices[0].message.content.strip()
                     
                     try:
-                        client.beta.threads.delete(thread_id=thread_id)
+                        await client.beta.threads.delete(thread_id=thread_id)
                         logging.info(f"🗑️ Thread удалён: {thread_id}")
 
                     except Exception as e:
@@ -3245,6 +3301,7 @@ async def send_users_comparison_bar_chart(context: CallbackContext, period):
 
 def main():
     global application
+    
     # Инициализация базы данных from database.py 
     init_db()
 
@@ -3274,38 +3331,70 @@ def main():
     #application.add_handler(MessageHandler(filters.Regex(r'🎙 Начать урок'), start_lesson)) # Теперь обрабатываем текст кнопки
     #application.add_handler(MessageHandler(filters.Regex(r'👥 Групповой звонок'), group_call)) # Теперь обрабатываем текст кнопки
     
+    # 1) Создаём loop и делаем его текущим для MainThread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # 2) Прогрев ассистента
+    try:
+        loop.run_until_complete(
+            get_or_create_openai_resources("sales_assistant_instructions", "sales_assistant")
+        )
+        logging.info("✅ Sales Assistant Assistant ID подтвержден/создан при старте бота.")
+    except Exception as e:
+        logging.critical(f"❌ Не удалось инициализировать Sales Assistant: {e}", exc_info=True)
+
+
     scheduler = BackgroundScheduler()
 
-    def run_async_job(async_func, context=None, *args, **kwargs):
+    # 3) APScheduler → вкидываем корутину в тот же loop
+    def submit_async(async_func, context=None, *args, **kwargs):
         if context is None:
-            context = CallbackContext(application=application)   # Создаем `context`, если его нет
+            context = CallbackContext(application=application)
 
-        try:
-            loop = asyncio.get_running_loop() # ✅ Берем уже работающий event loop
-        except RuntimeError:
-            loop = asyncio.new_event_loop()  # ❌ В потоке `apscheduler` нет loop — создаем новый
-            asyncio.set_event_loop(loop)
-        loop.run_until_complete(async_func(context, *args, **kwargs)) # ✅ Теперь event loop всегда работает
+        fut = asyncio.run_coroutine_threadsafe(
+            async_func(context, *args, **kwargs),
+            loop
+        )
+        fut.add_done_callback(lambda f: f.exception() and logging.exception("❌ APScheduler job crashed"))
+
+    # def run_async_job(async_func, context=None, *args, **kwargs):
+    #     if context is None:
+    #         context = CallbackContext(application=application)   # Создаем `context`, если его нет
+
+    #     try:
+    #         loop = asyncio.get_running_loop() # ✅ Берем уже работающий event loop
+    #     except RuntimeError:
+    #         loop = asyncio.new_event_loop()  # ❌ В потоке `apscheduler` нет loop — создаем новый
+    #         asyncio.set_event_loop(loop)
+    #     loop.run_until_complete(async_func(context, *args, **kwargs)) # ✅ Теперь event loop всегда работает
 
     # --- ЗАДАЧИ SCHEDULER ИСПОЛЬЗУЮТ НОВУЮ СТРУКТУРУ ---
     # Мы можем гарантировать, что Sales Assistant создан при запуске бота:
-    try:
-        # Используем get_or_create_openai_resources из openai_manager.py
-        # Обратите внимание: task_name и system_instruction (ключ) одинаковы.
-        get_or_create_openai_resources("sales_assistant_instructions", "sales_assistant")
-        logging.info("✅ Sales Assistant Assistant ID подтвержден/создан при старте бота.")
-    except Exception as e:
-        logging.critical(f"❌ Критическая ошибка: Не удалось инициализировать Sales Assistant при запуске: {e}", exc_info=True)
-        # Если это критично, можно здесь sys.exit(1)
+    # try:
+    #     # Используем get_or_create_openai_resources из openai_manager.py
+    #     # Обратите внимание: task_name и system_instruction (ключ) одинаковы.
+        
+    #     # await — это “подожди внутри уже работающего асинхронного мира”.
+    #     # asyncio.run() — это “создай маленький асинхронный мир, выполни там задачу до конца, вернись обратно в обычный Python”.
+    #     await get_or_create_openai_resources("sales_assistant_instructions", "sales_assistant")
+
+    #     logging.info("✅ Sales Assistant Assistant ID подтвержден/создан при старте бота.")
+    # except Exception as e:
+    #     logging.critical(
+    #         f"❌ Критическая ошибка: Не удалось инициализировать Sales Assistant при запуске: {e}", 
+    #         exc_info=True
+    #     )
+    #     # Если это критично, можно здесь sys.exit(1)
 
 
     # ✅ Добавляем задачу в `scheduler` ДЛЯ УТРА
     print("📌 Добавляем задачу в scheduler...")
-    scheduler.add_job(lambda: run_async_job(send_morning_reminder,CallbackContext(application=application)),"cron", hour=5, minute=5)
-    scheduler.add_job(lambda: run_async_job(send_morning_reminder,CallbackContext(application=application)),"cron", hour=15, minute=30)
+    scheduler.add_job(lambda: submit_async(send_morning_reminder,CallbackContext(application=application)),"cron", hour=5, minute=5)
+    scheduler.add_job(lambda: submit_async(send_morning_reminder,CallbackContext(application=application)),"cron", hour=15, minute=30)
 
     scheduler.add_job(
-        lambda: run_async_job(send_german_news, CallbackContext(application=application)), 
+        lambda: submit_async(send_german_news, CallbackContext(application=application)), 
         "cron",
         hour=4,
         minute=1,
@@ -3313,32 +3402,32 @@ def main():
         day_of_week = "mon, fri"
     )
     
-    scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="fri", hour=15, minute=15)
-    scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="mon", hour=6, minute=5) 
+    scheduler.add_job(lambda: submit_async(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="fri", hour=15, minute=15)
+    scheduler.add_job(lambda: submit_async(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="mon", hour=6, minute=5) 
     #scheduler.add_job(lambda: run_async_job(send_me_analytics_and_recommend_me, CallbackContext(application=application)), "cron", day_of_week="sun", hour=7, minute=7)
     
-    scheduler.add_job(lambda: run_async_job(force_finalize_sessions, CallbackContext(application=application)), "cron", hour=21, minute=59)
+    scheduler.add_job(lambda: submit_async(force_finalize_sessions, CallbackContext(application=application)), "cron", hour=21, minute=59)
     
-    scheduler.add_job(lambda: run_async_job(send_daily_summary), "cron", hour=20, minute=52)
-    scheduler.add_job(lambda: run_async_job(send_weekly_summary), "cron", day_of_week="sun", hour=20, minute=55)
+    scheduler.add_job(lambda: submit_async(send_daily_summary), "cron", hour=20, minute=52)
+    scheduler.add_job(lambda: submit_async(send_weekly_summary), "cron", day_of_week="sun", hour=20, minute=55)
 
     for hour in [7,12,16]:
-        scheduler.add_job(lambda: run_async_job(send_progress_report), "cron", hour=hour, minute=5)
+        scheduler.add_job(lambda: submit_async(send_progress_report), "cron", hour=hour, minute=5)
 
     #scheduler.add_job(lambda: run_async_job(get_yesterdays_mistakes_for_audio_message, CallbackContext(application=application)), "cron", hour=4, minute=15)
 
-    scheduler.add_job(lambda: run_async_job(send_user_analytics_bar_charts, CallbackContext(application=application), period="day"), "cron", hour= 22, minute=39, day_of_week = "sun")
+    scheduler.add_job(lambda: submit_async(send_user_analytics_bar_charts, CallbackContext(application=application), period="day"), "cron", hour= 22, minute=39, day_of_week = "sun")
 
     # планировщик по отправке аналитике:
-    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="day"), "cron", hour=22, minute=40, day_of_week="sun")
+    scheduler.add_job(lambda: submit_async(send_users_comparison_bar_chart, CallbackContext(application=application), period="day"), "cron", hour=22, minute=40, day_of_week="sun")
     
-    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="week"), "cron", day="last", hour= 22, minute=2)
+    scheduler.add_job(lambda: submit_async(send_users_comparison_bar_chart, CallbackContext(application=application), period="week"), "cron", day="last", hour= 22, minute=2)
 
-    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="month"), "cron", day="last", month="3,6,9,12", hour= 7, minute=2)
+    scheduler.add_job(lambda: submit_async(send_users_comparison_bar_chart, CallbackContext(application=application), period="month"), "cron", day="last", month="3,6,9,12", hour= 7, minute=2)
 
-    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="half_year"), "cron", day="last", month="6,12", hour= 10, minute=2)
+    scheduler.add_job(lambda: submit_async(send_users_comparison_bar_chart, CallbackContext(application=application), period="half_year"), "cron", day="last", month="6,12", hour= 10, minute=2)
 
-    scheduler.add_job(lambda: run_async_job(send_users_comparison_bar_chart, CallbackContext(application=application), period="quarter"), "cron", day="last", month="12", hour= 23, minute=2)
+    scheduler.add_job(lambda: submit_async(send_users_comparison_bar_chart, CallbackContext(application=application), period="quarter"), "cron", day="last", month="12", hour= 23, minute=2)
     
     scheduler.start()
     print("🚀 Бот запущен! Ожидаем сообщения...")
