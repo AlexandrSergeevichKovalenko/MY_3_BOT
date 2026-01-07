@@ -225,4 +225,7 @@ Flask-Cors
 # Environment variables
 python-dotenv
 
+gunicorn==21.2.0
+
+
 
