@@ -181,13 +181,20 @@ BOT_GROUP_CHAT_ID_Deutsch = int(BOT_GROUP_CHAT_ID_Deutsch)
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 LIVEKIT_URL = "wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud"
-CLIENT_HOST = os.getenv("CLIENT_HOST")
+#CLIENT_HOST = os.getenv("CLIENT_HOST")
 
-if LIVEKIT_API_KEY and LIVEKIT_API_SECRET and CLIENT_HOST:
+if LIVEKIT_API_KEY and LIVEKIT_API_SECRET:
     logging.info("✅ LiveKit API keys и CLIENT_HOST загружены!")
 else:
     logging.error("❌ LiveKit API keys или CLIENT_HOST не загружены!")
 
+WEB_APP_URL = os.getenv("WEB_APP_URL")
+
+if WEB_APP_URL:
+    logging.info("✅ WEB_APP_URL задан (ссылка на фронтенд будет стабильной).")
+    logging.info(f"WEB_APP_URL env = {os.getenv('WEB_APP_URL')!r}")
+else:
+    logging.warning("⚠️ WEB_APP_URL не задан: локально можно использовать ngrok/localhost.")
 
 
 print("🚀 Все переменные окружения Railway:")
@@ -3336,13 +3343,13 @@ def main():
     asyncio.set_event_loop(loop)
 
     # 2) Прогрев ассистента
-    try:
-        loop.run_until_complete(
-            get_or_create_openai_resources("sales_assistant_instructions", "sales_assistant")
-        )
-        logging.info("✅ Sales Assistant Assistant ID подтвержден/создан при старте бота.")
-    except Exception as e:
-        logging.critical(f"❌ Не удалось инициализировать Sales Assistant: {e}", exc_info=True)
+    # try:
+    #     loop.run_until_complete(
+    #         get_or_create_openai_resources("sales_assistant_instructions", "sales_assistant")
+    #     )
+    #     logging.info("✅ Sales Assistant Assistant ID подтвержден/создан при старте бота.")
+    # except Exception as e:
+    #     logging.critical(f"❌ Не удалось инициализировать Sales Assistant: {e}", exc_info=True)
 
 
     scheduler = BackgroundScheduler()
