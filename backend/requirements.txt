@@ -13,3 +13,5 @@ psycopg2-binary
 
 # Environment variables
 python-dotenv
+
+gunicorn
