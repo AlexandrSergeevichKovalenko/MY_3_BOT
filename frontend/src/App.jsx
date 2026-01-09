@@ -48,7 +48,7 @@ function App() {
       // может обратиться к определенной функции на бэкенде.
       // В нашем случае этот адрес — /token, а функция — get_token.
       // Вот так фронтенд и бэкенд "общаются" друг с другом через эти эндпоинты.
-      const API_BASE_URL = "https://backendwebbackendserverpy-production.up.railway.app";
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
       const response = await fetch(
         `${API_BASE_URL}/api/token?user_id=${encodeURIComponent(telegramID)}&username=${encodeURIComponent(username)}`
