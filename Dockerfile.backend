@@ -1,23 +1,48 @@
-FROM python:3.10-slim
-
-# Системные зависимости
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+############################################
+# STAGE 1: build frontend (Vite -> dist)
+############################################
+FROM node:20-alpine AS frontend_builder
 
 WORKDIR /app
 
-# Python зависимости
-COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# 1) Ставим зависимости фронта
+COPY frontend/package*.json ./frontend/
+WORKDIR /app/frontend
+RUN npm ci
 
-# Копируем весь проект
-COPY . .
+# 2) Копируем исходники фронта и собираем
+COPY frontend/ /app/frontend/
+RUN npm run build
 
-# Открываем HTTP-порт
-EXPOSE 8080
 
-# Запуск backend-сервера
-CMD ["python", "backend/backend_server.py"]
+############################################
+# STAGE 2: backend (Flask) + serve dist
+############################################
+FROM python:3.10-slim AS backend
+
+WORKDIR /app
+
+# (Опционально) системные зависимости — обычно не нужны для токен-сервиса,
+# но если вдруг какие-то пакеты требуют компиляции — оставим build-essential.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+  && rm -rf /var/lib/apt/lists/*
+
+# 1) Ставим зависимости backend
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+
+# 2) Копируем backend-код
+COPY backend/ /app/backend/
+
+# 3) Кладём собранный фронт (dist) внутрь образа
+# Важно: Flask у тебя ищет /app/frontend/dist
+COPY --from=frontend_builder /app/frontend/dist /app/frontend/dist
+
+# Railway даёт PORT, обычно 8080
+ENV PORT=8080
+
+# 4) Запускаем Flask НЕ dev-сервером, а gunicorn (прод вариант)
+# ВАЖНО: чтобы это работало, в requirements.txt должен быть gunicorn
+CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:${PORT} backend.backend_server:app"]
+
