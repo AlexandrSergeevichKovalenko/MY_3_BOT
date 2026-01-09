@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { LiveKitRoom, AudioConference, ConnectionStateToast } from '@livekit/components-react';
+import '@livekit/components-styles';
 
 // URL вашего сервера LiveKit
 const livekitUrl = "wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud";
@@ -133,6 +134,8 @@ if (!token) {
       audio={true}
       video={false}
       onDisconnected={() => setToken(null)}
+      onError={(e) => console.error("LiveKit error:", e)}
+      style={{ height: "100vh" }}
     >
       <AudioConference />
       <ConnectionStateToast />
