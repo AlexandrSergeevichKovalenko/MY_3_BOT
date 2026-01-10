@@ -1,0 +1,21 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# системные зависимости (оставим build-essential, как у тебя)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+  && rm -rf /var/lib/apt/lists/*
+
+# ставим python deps
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+
+# копируем backend код
+COPY backend/ /app/backend/
+
+# чтобы "backend" импортировался как пакет (важно для imports типа "from backend.utils import ...")
+ENV PYTHONPATH=/app
+
+# запуск агента
+CMD ["python", "-u", "/app/backend/agent.py"]
