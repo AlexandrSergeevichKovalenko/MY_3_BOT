@@ -300,6 +300,8 @@ async def entrypoint(ctx: JobContext):
         teacher_tools_instance.explain_grammar,
         teacher_tools_instance.generate_quiz_question,
         teacher_tools_instance.evaluate_quiz_answer,
+        teacher_tools_instance.bookmark_phrase,
+        teacher_tools_instance.log_conversation_mistake
 ]
 
     # 7) Создаем AgentSession (замена VoicePipelineAgent)
