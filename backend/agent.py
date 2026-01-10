@@ -1,24 +1,48 @@
 import asyncio
 import os
 import logging
-from logging.handlers import RotatingFileHandler
+import sys
 from livekit import rtc
-from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli, llm, RoomInputOptions
+from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli, llm
 from livekit.plugins import openai, silero
-from api import SalesAssistantTools
-
+from api import GermanTeacherTools
+from openai_manager import system_message
 from dotenv import load_dotenv
+from datetime import datetime
+from database import get_db_connection_context # Імпорт контекстного менеджера для підключення до БД
+from livekit.agents.voice import room_io
+
+
 load_dotenv()
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        RotatingFileHandler("sales_assistant.log", maxBytes=10*1024*1024, backupCount=5),
-        logging.StreamHandler()
-    ]
-)
+# === НАСТРОЙКА ЛОГИРОВАНИЯ ===
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+IS_LIVEKIT_DEV_PARENT = (os.getenv("LIVEKIT_WATCH_PARENT") == "1")
+
+# Настройка логгера
+if not IS_LIVEKIT_DEV_PARENT:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [pid=%(process)d] - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("agent.log", encoding="utf-8")
+        ],
+        force=True
+    )
+    logging.info("📢 TEST LOG ENTRY: Logging system initialized successfully!")
+else:
+    # parent-процесс (watcher) — не настраиваем логирование и не шумим
+    pass
+
+# === FIX: убираем дубли логов от livekit ===
+for name in ("livekit", "livekit.agents"):
+    lg = logging.getLogger(name)
+    lg.handlers.clear()     # убираем собственные handlers livekit
+    lg.propagate = True     # пусть сообщения идут в root (который настроен basicConfig)
+
 
 class NoBinaryFilter(logging.Filter):
     def filter(self, record):
@@ -26,180 +50,523 @@ class NoBinaryFilter(logging.Filter):
 
 logging.getLogger().addFilter(NoBinaryFilter())
 
-SALES_ASSISTANT_SYSTEM_INSTRUCTIONS = """
-You are a friendly and professional sales assistant representing the company.
-Your goal is to communicate effectively with clients, provide product information,
-offer new products, understand needs, and assist with order placement.
+# === ФУНКЦИЯ ЗАПИСИ ТРАНСКРИПТА ===
+def save_transcript(role, text):
+    """Записывает реплики в файл conversation.txt"""
+    try:
+        with open("logs/conversation.txt", "a", encoding="utf-8") as f:
+            time_str = datetime.now().strftime("%H:%M:%S")
+            f.write(f"[{time_str}] {role}: {text}\n")
+    except Exception as e:
+        logging.error(f"Ошибка записи транскрипта: {e}")
 
-**Key Actions and Priorities:**
-1. **Client Identification**: Always start the conversation with a greeting and attempt to identify the client.
-   Ask for their name, surname, and phone number. Use the `get_client_info` tool
-   to search by phone number or system ID.
-2. **Request Information for Registration/Update**: If the client is new or their data is incomplete,
-   politely ask for their first name and phone number before calling `create_or_update_client`.
-   **DO NOT call `create_or_update_client` until you have both first_name and phone_number.**
-   Optionally, collect last_name, email, city, system_id, and manager_contact if provided.
-3. **Discuss New Products**: If the client shows interest in new products or if the
-   conversation allows, offer to discuss new products using `get_new_products_info`.
-4. **Product Details**: Answer questions about specific products using `get_product_details`.
-5. **Order Placement**: If the client expresses a desire to place an order,
-   create it using `record_customer_order`. Always clarify product names and quantities.
-   Ensure you have a `client_id` (from `get_client_info` or `create_or_update_client`)
-   before calling `record_customer_order`.
-6. **Manager Contacts**: If the client asks about their manager or who is responsible for their region,
-   use `get_manager_for_location` to provide contact information.
-7. **Maintain Dialogue**: Always maintain a positive tone, be polite, and clear.
-8. **Language**: Communicate exclusively in ENGLISH.
-"""
+# === КЛАСС АГЕНТА ===
+class GermanTeacherAgent(Agent):
+    def __init__(self, llm_instance):
+        super().__init__(instructions=system_message["german_teacher_instructions"])
+        self.chat_model = llm_instance
+        self.current_instructions = self.instructions
 
-class SalesAssistantAgent(Agent):
-    def __init__(self):
-        super().__init__(instructions=SALES_ASSISTANT_SYSTEM_INSTRUCTIONS)
-        tools_instance = SalesAssistantTools()
-        self._tools = [
-            tools_instance.get_client_info,
-            tools_instance.create_or_update_client,
-            tools_instance.get_new_products_info,
-            tools_instance.get_product_details,
-            tools_instance.record_customer_order,
-            tools_instance.get_manager_for_location,
-        ]
-        self._current_client_id = None
-        logging.debug(f"Loaded tools: {[tool.__name__ for tool in self._tools]}")
+        # Эти поля реально используются твоими wrapper-логиками
+        self.current_user_id = None
+        self.user_name = "Student"  # Имя по умолчанию
 
-    async def on_user_joined(self, participant: rtc.RemoteParticipant):
-        logging.info(f"🚪 User {participant.identity} joined.")
-        self._current_client_id = None
+
+    def fetch_user_name(self, user_id):
+        """Прямой запрос к базе данных за именем"""
         try:
-            # Упрощённое приветственное сообщение для теста
-            greeting = "Hello! I'm your sales assistant. Please provide your name and phone number to start."
-            logging.debug(f"Publishing greeting: '{greeting}'")
-            await self.say(greeting)
+            with get_db_connection_context() as conn:
+                with conn.cursor() as cursor:
+                    # Берем самое свежее имя из таблицы прогресса
+                    cursor.execute("SELECT username FROM bt_3_user_progress WHERE user_id = %s ORDER BY start_time DESC LIMIT 1;", (user_id,))
+                    result = cursor.fetchone()
+                    if result and result[0]:
+                        return result[0]
         except Exception as e:
-            logging.error(f"❌ Error in on_user_joined: {e}", exc_info=True)
-            await self.say("Sorry, an error occurred during startup. Please try again.")
+            logging.error(f"❌ Ошибка при поиске имени в БД: {e}")
+        return None
 
-    async def on_user_speech_committed(self, text: str, participant: rtc.RemoteParticipant):
-        logging.info(f"🗣️ Client {participant.identity} said: '{text}'")
-        logging.debug(f"Audio buffer size: {len(participant.audio.get_data())} bytes")
-        try:
-            response_content = await self.generate_reply(text)
-            if response_content:
-                logging.debug(f"Publishing response to LiveKit: '{response_content}'")
-                await self.say(response_content)
-            else:
-                logging.info("LLM did not generate a text response, possibly a tool was called.")
-        except Exception as e:
-            logging.error(f"❌ Error generating LLM response for user speech: {e}", exc_info=True)
-            await self.say("Sorry, an error occurred while processing your request. Please try again.")
-    
-    # этот метод вызывается фреймворком автоматически сразу после того, как generate_reply возвращает None, 
-    # it means that LLM вместо текста вернула специальный объект с запросом на вызов функции.
-    # модель возвращает строку JSON. Но код получает словарь, потому что фреймворк LIVEKIT выполняет работу по преобразованию строки в словарь за вас. 
-    # Это одна из его ключевых задач — избавить вас от рутинной работы по парсингу и предоставить данные в удобном для Python виде.
-    # # Псевдокод того, что делает фреймворк "под капотом"
-    # json_string_from_llm = '{"identifier": "0501234567"}'
-    # arguments_dict = json.loads(json_string_from_llm)
-    # arguments_dict теперь является настоящим Python-словарем: {'identifier': '0501234567'}
-    async def on_function_call(self, name: str, arguments: dict):
-        logging.info(f"🤖 LLM requested function call: {name} with arguments: {arguments}")
-        try:
-            tool_func = next((tool for tool in self._tools if tool.__name__ == name), None)
-            if tool_func:
-                if name == "create_or_update_client" and not arguments.get("phone_number"):
-                    logging.error("❌ Attempted to call create_or_update_client with empty phone_number")
-                    await self.say("Please provide your phone number to proceed with registration.")
-                    return
-                # **arguments: Это синтаксис распаковки словаря. Он берет словарь arguments (например, {'identifier': '0501234567'}) 
-                # и превращает его в именованные аргументы при вызове функции. То есть, строка выше эквивалентна: func_result = await tool_func(identifier='0501234567')
-                # в коде on_function_call нет ни одной строки, которая бы явно отправляла func_result в LLM. 
-                # И это потому, что эту работу тоже берет на себя главный цикл фреймворка AgentSession.
-                func_result = await tool_func(**arguments)
-                logging.info(f"✅ Result of function '{name}': {func_result}")
-                if (name == "get_client_info" or name == "create_or_update_client") and func_result and "id" in func_result:
-                    self._current_client_id = func_result["id"]
-                    logging.info(f"🆔 Set current_client_id: {self._current_client_id}")
-            else:
-                logging.error(f"❌ Tool function '{name}' not found.")
-                await self.say(f"Sorry, the function '{name}' was not found.")
-        except Exception as e:
-            logging.error(f"❌ Error executing function '{name}': {e}", exc_info=True)
-            await self.say(f"Sorry, an error occurred while executing '{name}': {e}.")
-        # После того как on_function_call успешно завершается, фреймворк делает следующий шаг. 
-        # Он берет результат func_result, упаковывает его в специальное сообщение с "ролью" function и снова отправляет всю историю диалога + этот результат в LLM.
-        # Теперь у LLM есть вся информация для финального ответа. Например:
-        # История: "Привет" -> "Привет! Назовитесь" -> "Я Иван"
-        # Результат функции: {'id': 1, 'first_name': 'Иван', 'is_existing_client': True}
-        # На основе этого LLM сгенерирует осмысленный ответ: 
-        # "Добрый день, Иван! Рад вас снова слышать. Чем могу помочь?". 
-        # Этот текст будет получен и озвучен на следующей итерации цикла, через generate_reply и say
+from typing import Optional
 
-    # Это "хук" (hook), который срабатывает после того, как on_function_call завершился. 
-    # Он дает вам доступ не только к имени и аргументам, но и к результату (result) или ошибке (error), если она произошла.
-    async def on_function_call_ended(self, name: str, success: bool, result: dict | str | None):
-        logging.info(f"🏁 Function call '{name}' completed. Success: {success}. Result: {result}")
-
-    async def say(self, text: str):
-        logging.debug(f"Attempting to publish audio for text: '{text}'")
-        try:
-            await super().say(text)
-            logging.debug("Audio published successfully")
-        except Exception as e:
-            logging.error(f"❌ Failed to publish audio: {e}", exc_info=True)
-
+# === ТОЧКА ВХОДА ===
 async def entrypoint(ctx: JobContext):
-    logging.info("✨ Starting entrypoint for Sales Assistant Agent...")
+    logging.info("✨ Starting German Teacher Agent...")
+
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         logging.error("❌ OPENAI_API_KEY is not set")
-        raise ValueError("OPENAI_API_KEY environment variable is required")
-    session = AgentSession(
-        stt=openai.STT(
-            model="whisper-1",
-            language="en",
-            api_key=api_key
-        ),
-        llm=openai.LLM(
-            model="gpt-4o-mini",
-            api_key=api_key
-        ),
-        tts=openai.TTS(
-            model="tts-1",
-            voice="alloy",
-            api_key=api_key
-        ),
-        vad=silero.VAD.load(),
-    )
-    await session.start(
-        room=ctx.room,
-        agent=SalesAssistantAgent(),
-        room_input_options=RoomInputOptions(noise_cancellation=None)
-    )
-    await ctx.connect()
-    logging.info("✅ AgentSession started. Waiting for the first user message.")
+        return
 
-# Про ключи (LIVEKIT_API_KEY и SECRET):
-# Вы правы, мы не передаем их в entrypoint явно. И не нужно. Библиотека livekit-agents (и многие другие серверные программы) по умолчанию спроектирована так, 
-# что она автоматически ищет эти данные в переменных окружения. Когда вы запускаете python agent.py, 
-# библиотека сама выполняет невидимый для вас os.getenv("LIVEKIT_API_KEY") и os.getenv("LIVEKIT_API_SECRET") для аутентификации на сервере LiveKit. 
+    # 1) Подключаемся к комнате
+    await ctx.connect()
+    logging.info("✅ Connected to the room. Waiting for participants...")
+
+    # === DISCONNECT TIMEOUT LOGIC ===
+    DISCONNECT_TIMEOUT_SEC = 30
+
+    disconnect_task: Optional[asyncio.Task] = None
+    stop_event = asyncio.Event()
+
+    def _has_remote_participants() -> bool:
+        """Проверяем, есть ли сейчас хоть один remote participant."""
+        rp = getattr(ctx.room, "remote_participants", None)
+        if isinstance(rp, dict):
+            return len(rp) > 0
+        if rp is None:
+            return False
+        try:
+            return len(list(rp)) > 0
+        except Exception:
+            return False
+        
+    async def _close_session_after_timeout(reason: str):
+        logging.warning(f"⏳ Disconnect detected. Will close session in {DISCONNECT_TIMEOUT_SEC}s if user doesn't return. Reason={reason}")
+        
+        try:
+            await asyncio.sleep(DISCONNECT_TIMEOUT_SEC)
+
+            # Если за это время кто-то снова подключился — не закрываем
+            # Считаем "вернулся", если есть хоть один remote participant
+            # rp = getattr(ctx.room, "remote_participants", None)
+            # has_remote = False
+            # if isinstance(rp, dict):
+            #     has_remote = len(rp) > 0
+            # elif rp is not None:
+            #     try:
+            #         has_remote = len(list(rp)) > 0
+            #     except Exception:
+            #         has_remote = False
+
+            if _has_remote_participants():
+                logging.info("✅ Participant returned within timeout — keeping session alive.")
+                return
+
+            logging.warning("🧨 No participant returned — closing AgentSession now.")
+            try:
+                await session.aclose()
+                stop_event.set()
+                logging.info("✅ Session closed due to participant absence.")
+            except Exception as e:
+                logging.error(f"❌ Failed to close session cleanly: {e}", exc_info=True)
+
+        except asyncio.CancelledError:
+            logging.info("✅ Disconnect timeout task cancelled (participant returned).")
+            return
+
+    # 2) Создаем LLM
+    my_llm = openai.LLM(model="gpt-4o", api_key=api_key)
+    my_stt = openai.STT(model="whisper-1", language="de")
+    my_tts = openai.TTS(model="tts-1", voice="alloy")
+    my_vad = silero.VAD.load(
+        min_speech_duration=0.1,
+        min_silence_duration=0.5
+    )
+
+    # 3) Наша бизнес-логика (пока оставляем класс как есть)
+    teacher_logic = GermanTeacherAgent(llm_instance=my_llm)
+    teacher_logic._greeted_user_ids = set() # Для анти-спама приветствий
+
+    # Отримуємо SID сесії (унікальний ID дзвінка)
+    # ctx.room.sid - це унікальний ідентифікатор саме цієї сесії розмови
+    # Tools: берем уже готовые FunctionTool из твоего GermanTeacherTools (@llm.function_tool)
+
+    # ✅ SID: у тебя было "<coroutine object Room.sid ...>"
+    # Значит sid - async (либо sid(), либо property, который возвращает coroutine).
+    sid_obj = getattr(ctx.room, "sid", None)
+    if callable(sid_obj):
+        sid_obj = sid_obj()  # если это method -> получим coroutine/значение
+    session_id = await sid_obj if asyncio.iscoroutine(sid_obj) else sid_obj
+    logging.info(f"🎯 Session ID: {session_id}")
+    
+    teacher_tools_instance = GermanTeacherTools(session_id=session_id)
+
+    # 5) Tool-wrapper без аргументов, который достает user_id 
+    @llm.function_tool
+    async def get_recent_telegram_mistakes() -> str:
+        # 1) если participant_connected уже успел — current_user_id уже есть
+        if not teacher_logic.current_user_id:
+            ok = await _resolve_user_id_from_room()
+            if not ok:
+                return "User ID is not set yet (no participant identified)."
+
+
+        # 2) если имя ещё не подтянуто — подтянем (на всякий)
+        if not teacher_logic.user_name or teacher_logic.user_name == "Student":
+            real_name = teacher_logic.fetch_user_name(teacher_logic.current_user_id)
+            teacher_logic.user_name = real_name or "Student"
+
+        return await teacher_tools_instance.get_recent_telegram_mistakes(
+            user_id=teacher_logic.current_user_id
+        )
+    
+
+
+    # FALLBACK (not used currently)
+    async def _resolve_user_id_from_room() -> bool:
+        """
+        Пытается определить Telegram user_id по участникам в комнате.
+        Делает это один раз и сохраняет в teacher_logic.current_user_id.
+        Также подтягивает имя из БД и приветствует ОДИН раз.
+        Возвращает True если получилось определить user_id, иначе False.
+        """
+
+        # 0) Если уже определили — ничего не делаем
+        if teacher_logic.current_user_id:
+            return True
+
+        # 1) Достаём участников из комнаты максимально совместимо
+        room = ctx.room
+        participants = []
+
+        # Вариант A: remote_participants (часто dict)
+        rp = getattr(room, "remote_participants", None)
+        if rp:
+            if isinstance(rp, dict):
+                participants.extend(list(rp.values()))
+            else:
+                participants.extend(list(rp))
+
+        # Вариант B: participants (иногда общий список/словарь)
+        p = getattr(room, "participants", None)
+        if p:
+            if isinstance(p, dict):
+                participants.extend(list(p.values()))
+            else:
+                participants.extend(list(p))
+
+        # Убираем None и дубли
+        participants = [x for x in participants if x is not None]
+        if not participants:
+            logging.warning("❌ Cannot resolve user_id: no participants in room yet.")
+            return False
+
+        # 2) Ищем первого участника с числовым identity
+        for part in participants:
+            identity = getattr(part, "identity", None)
+            if not identity:
+                continue
+
+            try:
+                user_id_int = int(identity)
+            except Exception:
+                continue
+
+            # ✅ Нашли
+            teacher_logic.current_user_id = user_id_int
+            logging.info(f"✅ Resolved user_id from room participants: {teacher_logic.current_user_id}")
+
+            # 3) Подтягиваем имя из БД
+            real_name = teacher_logic.fetch_user_name(teacher_logic.current_user_id)
+            teacher_logic.user_name = real_name or "Student"
+            logging.info(f"✅ Resolved username: {teacher_logic.user_name}")
+
+            # 4) Анти-спам приветствия (один раз на user_id)
+            if teacher_logic.current_user_id not in teacher_logic._greeted_user_ids:
+                teacher_logic._greeted_user_ids.add(teacher_logic.current_user_id)
+
+                # Обновим instructions (если ты их реально используешь дальше)
+                teacher_logic.current_instructions = (
+                    f"{system_message['german_teacher_instructions']}\n\n"
+                    f"--- CONTEXT UPDATE ---\n"
+                    f"CURRENT STUDENT NAME: {teacher_logic.user_name}\n"
+                    f"CURRENT STUDENT ID: {teacher_logic.current_user_id}\n"
+                    f"IMPORTANT: Always address the student by name when appropriate.\n"
+                )
+
+
+            return True
+
+        logging.warning("❌ Cannot resolve user_id: no numeric participant.identity found.")
+        return False
+
+    @llm.function_tool
+    async def get_student_context() -> str:
+        if not teacher_logic.current_user_id:
+            ok = await _resolve_user_id_from_room()
+            if not ok:
+                return "{'user_id': null, 'user_name': 'Student'}"
+
+        if teacher_logic.user_name == "Student":
+            real_name = teacher_logic.fetch_user_name(teacher_logic.current_user_id)
+            teacher_logic.user_name = real_name or "Student"
+
+        return str({"user_id": teacher_logic.current_user_id, "user_name": teacher_logic.user_name})
+
+
+    # 6) Список tools для AgentSession. AgentSession умеет tools штатно.
+    tools = [
+        get_recent_telegram_mistakes, # <-- wrapper без аргументов
+        get_student_context,  
+        teacher_tools_instance.explain_grammar,
+        teacher_tools_instance.generate_quiz_question,
+        teacher_tools_instance.evaluate_quiz_answer,
+]
+
+    # 7) Создаем AgentSession (замена VoicePipelineAgent)
+    session = AgentSession(
+        stt=my_stt,
+        llm=my_llm,
+        tts=my_tts,
+        vad=my_vad,
+        tools=tools,
+        allow_interruptions=True,
+    )
+
+    # HANDLERS (СНАЧАЛА def, ПОТОМ .on)
+    def on_participant_connected(participant: rtc.RemoteParticipant):
+            nonlocal disconnect_task
+            logging.info("=============================================")
+            logging.info("👋 participant_connected")
+            logging.info(f"🆔 Identity: '{getattr(participant, 'identity', None)}'")
+            logging.info(f"👤 Name(token): '{getattr(participant, 'name', None)}'")
+            logging.info("=============================================")
+
+            if disconnect_task and not disconnect_task.done():
+                disconnect_task.cancel()
+
+            identity = getattr(participant, "identity", None)
+            if not identity:
+                asyncio.create_task(session.say("Hallo! Entschuldigung, ich kann deine ID nicht lesen."))
+                return
+
+            # Парсим ID
+            try:
+                user_id_int = int(identity)
+            except Exception:
+                teacher_logic.current_user_id = None
+                asyncio.create_task(session.say("Hallo! Entschuldigung, ich kann deine ID nicht lesen."))
+                return
+
+            # анти-спам приветствия
+            if user_id_int in teacher_logic._greeted_user_ids:
+                logging.info(f"👋 User {user_id_int} already greeted -> skip greeting")
+                return
+
+            teacher_logic._greeted_user_ids.add(user_id_int)
+            teacher_logic.current_user_id = user_id_int
+
+            # Имя из БД
+            real_name = teacher_logic.fetch_user_name(user_id_int)
+            teacher_logic.user_name = real_name or "Student"
+            logging.info(f"✅ participant_connected resolved username: {teacher_logic.user_name}")
+
+            # # Обновляем инструкции (если используешь где-то)
+            # teacher_logic.current_instructions = (
+            #     f"{teacher_logic.instructions}\n\n"
+            #     f"--- CONTEXT UPDATE ---\n"
+            #     f"CURRENT STUDENT NAME: {teacher_logic.user_name}\n"
+            #     f"CURRENT STUDENT ID: {teacher_logic.current_user_id}\n"
+            # )
+            teacher_logic.current_instructions = (
+                f"{system_message['german_teacher_instructions']}\n\n"
+                f"--- CONTEXT UPDATE ---\n"
+                f"CURRENT STUDENT NAME: {teacher_logic.user_name}\n"
+                f"CURRENT STUDENT ID: {teacher_logic.current_user_id}\n"
+            )
+
+
+    def on_participant_disconnected(participant: rtc.RemoteParticipant):
+        nonlocal disconnect_task
+        logging.info("=============================================")
+        logging.info("👋 participant_disconnected")
+        logging.info(f"🆔 Identity: '{getattr(participant, 'identity', None)}'")
+        logging.info(f"👤 Name(token): '{getattr(participant, 'name', None)}'")
+        logging.info("=============================================")
+
+        # Если таймер уже тикает — не запускаем второй
+        if disconnect_task and not disconnect_task.done():
+            return
+
+        disconnect_task = asyncio.create_task(
+            _close_session_after_timeout("participant_disconnected")
+        )
+
+    # 6.1) Транскрипт: ловим все элементы диалога
+    def _on_conversation_item_added(ev):
+        try:
+            item = getattr(ev, "item", None)
+            if not item:
+                return
+
+            role = getattr(item, "role", "unknown")
+            content = getattr(item, "content", [])
+            text = ""
+
+            if content:
+                first = content[0]
+                text = first if isinstance(first, str) else str(first)
+
+            logging.info(f"🧩 conversation_item_added | role={role} | text={text}")
+
+            if role == "user":
+                # при первом пользовательском сообщении пытаемся резолвить ID+имя
+                if not teacher_logic.current_user_id:
+                    asyncio.create_task(_resolve_user_id_from_room())
+
+            if role in ("user", "assistant"):
+                save_transcript(role.capitalize(), text)
+
+        except Exception as e:
+            logging.error(f"❌ Error in conversation_item_added handler: {e}", exc_info=True)
+
+    # 6.2) Tools executed — просто логируем (позже красиво разберём структуру)
+    def _on_tools_executed(ev):
+        try:
+            logging.info(f"🛠️ function_tools_executed: {ev}")
+        except Exception as e:
+            logging.error(f"❌ Error in function_tools_executed handler: {e}", exc_info=True)    
+    # “Сессия, когда у тебя произойдёт событие conversation_item_added, вызови функцию _on_conversation_item_added и передай ей объект события.”
+    # 1. пользователь сказал фразу
+    # 2. session добавил в историю conversation item
+    # 3. session вызвал emit("conversation_item_added", ev)
+    # 4. emit нашёл listeners["conversation_item_added"]
+    # 5. вызвал каждый callback из списка, передав им ev
+
+    # 6.3) Ошибки runtime
+    def _on_error(ev):
+        try:
+            logging.error(f"💥 session error: {ev}")
+        except Exception as e:
+            logging.error(f"❌ Error in error handler: {e}", exc_info=True)
+
+    session.on("conversation_item_added", _on_conversation_item_added)
+
+    session.on("function_tools_executed", _on_tools_executed)
+
+    session.on("error", _on_error)
+    
+    ctx.room.on("participant_connected", on_participant_connected)
+
+    ctx.room.on("participant_disconnected", on_participant_disconnected)
+
+    room_options = room_io.RoomOptions(close_on_disconnect=False)
+    
+    # 10) Стартуем сессию
+    logging.info("🚀 Starting AgentSession...")
+    await session.start(room=ctx.room, agent=teacher_logic, room_options=room_options)
+
+    # Пытаемся найти участника, который уже в комнате (это наш юзер с браузера)
+    user_name_for_greeting = "Student"
+    
+    # Берем список всех участников (кроме самого бота)
+    participants = list(ctx.room.remote_participants.values())
+    
+    if participants:
+        # Берем первого попавшегося (обычно он один)
+        p = participants[0]
+        # Берем имя, которое мы передали в токене (из поля Name на сайте)
+        if p.name:
+            user_name_for_greeting = p.name
+            # Сохраняем имя в логику учителя сразу
+            teacher_logic.user_name = p.name
+            logging.info(f"🚀 FAST START: Found user '{p.name}' immediately!")
+
+    # 🔥 ПРИНУДИТЕЛЬНЫЙ ГЕНЕРАЦИЯ ПЕРВОГО ОТВЕТА
+    # Мы даем ИИ скрытую инструкцию: "Поздоровайся с [Имя]".
+    logging.info("🗣️ Invoking initial greeting...")
+    
+    await session.generate_reply(
+        instructions=f"The user '{user_name_for_greeting}' has just joined. Greet them warmly by name in German and offer help with learning German. Use system instruction to proceed with the conversation appropriately."
+    )
+
+
+    logging.info("✅ AgentSession started. Running...")
+    await stop_event.wait()
+    logging.info("🛑 Stop event received — exiting entrypoint")
+
+
+
+
 if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 
 
 
-# Вот полная последовательность событий, начиная с конца on_user_speech_committed:
+# async def on_function_call этот метод вызывается фреймворком автоматически сразу после того, как generate_reply возвращает None, 
+
+    # it means that LLM вместо текста вернула специальный объект с запросом на вызов функции.
+
+    # модель возвращает строку JSON. Но код получает словарь, потому что фреймворк LIVEKIT выполняет работу по преобразованию строки в словарь за вас. 
+
+    # Это одна из его ключевых задач — избавить вас от рутинной работы по парсингу и предоставить данные в удобном для Python виде.
+
+    # # Псевдокод того, что делает фреймворк "под капотом"
+
+    # json_string_from_llm = '{"identifier": "0501234567"}'
+
+    # arguments_dict = json.loads(json_string_from_llm)
+
+    # arguments_dict теперь является настоящим Python-словарем: {'identifier': '0501234567'}                 
+    # # **arguments: Это синтаксис распаковки словаря. Он берет словарь arguments (например, {'identifier': '0501234567'}) 
+
+    # и превращает его в именованные аргументы при вызове функции. То есть, строка выше эквивалентна: func_result = await tool_func(identifier='0501234567')
+
+    # в коде on_function_call нет ни одной строки, которая бы явно отправляла func_result в LLM. 
+
+    # И это потому, что эту работу тоже берет на себя главный цикл фреймворка AgentSession.          
+    # 
+    # # После того как on_function_call успешно завершается, фреймворк делает следующий шаг. 
+
+    # Он берет результат func_result, упаковывает его в специальное сообщение с "ролью" function и снова отправляет всю историю диалога + этот результат в LLM.
+
+    # Теперь у LLM есть вся информация для финального ответа. Например:
+
+    # История: "Привет" -> "Привет! Назовитесь" -> "Я Иван"
+
+    # Результат функции: {'id': 1, 'first_name': 'Иван', 'is_existing_client': True}
+
+    # На основе этого LLM сгенерирует осмысленный ответ: 
+
+    # "Добрый день, Иван! Рад вас снова слышать. Чем могу помочь?". 
+
+    # Этот текст будет получен и озвучен на следующей итерации цикла, через generate_reply и say
+
+
+
+# async def on_function_call_ended Это "хук" (hook), который срабатывает после того, как on_function_call завершился. 
+
+# Он дает вам доступ не только к имени и аргументам, но и к результату (result) или ошибке (error), если она произошла.  
+# 
+# # Про ключи (LIVEKIT_API_KEY и SECRET):
+
+# Вы правы, мы не передаем их в entrypoint явно. И не нужно. Библиотека livekit-agents (и многие другие серверные программы) по умолчанию спроектирована так, 
+
+# что она автоматически ищет эти данные в переменных окружения. Когда вы запускаете python agent.py, 
+
+# библиотека сама выполняет невидимый для вас os.getenv("LIVEKIT_API_KEY") и os.getenv("LIVEKIT_API_SECRET") для аутентификации на сервере LiveKit.  # Вот полная последовательность событий, начиная с конца on_user_speech_committed:
+
 # on_user_speech_committed завершается. generate_reply вернул None, сигнализируя о вызове функции.
+
 # Дирижер (фреймворк) видит этот сигнал и вызывает вашего первого музыканта: await on_function_call(...).
+
 # Ваш код в on_function_call выполняется. Он находит функцию, вызывает ее и получает func_result (например, словарь с данными Ивана). 
+
 # Метод on_function_call завершает свою работу.Дирижер (фреймворк) перехватывает управление. Он видит, что on_function_call успешно завершился, и у него на руках есть func_result.
+
 # Вот он, скрытый шаг! Дирижер берет func_result, преобразует его в JSON-строку (если это словарь) и добавляет в историю диалога как новое сообщение со специальной ролью function.
+
 # История диалога теперь выглядит так:
+
 # [
+
 #  {'role': 'user', 'content': 'Здравствуйте, это Иван'},
+
 #  {'role': 'assistant', 'tool_calls': [...]}, // Запрос на вызов get_client_info
+
 #  {'role': 'function', 'name': 'get_client_info', 'content': '{"id": 1, "first_name": "Иван", ...}'} // <-- РЕЗУЛЬТАТ
+
 # ]
+
 # Дирижер (фреймворк) немедленно делает новый автоматический вызов LLM, отправляя ей всю эту обновленную историю.
+
 # LLM получает всю картину: что спросил пользователь, какой инструмент она решила вызвать, и какой результат этот инструмент вернул.
+
 # Теперь у LLM есть все данные, и на этот раз она генерирует текстовый ответ: "Добрый день, Иван! Рад вас снова слышать. Чем могу помочь?".
+
 # Дирижер (фреймворк) получает этот текстовый ответ и понимает, что теперь нужно просто его озвучить. Он вызывает вашего второго музыканта: await self.say(...).
+
+
+
+#Коли хтось підключиться до кімнати sales-assistant-room (або як вона у вас називається), сервер LiveKit дасть вашому воркеру завдання: 
+
+# "Виконай entrypoint_fnc (тобто вашу функцію entrypoint) для цієї кімнати". 

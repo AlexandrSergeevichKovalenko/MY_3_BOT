@@ -2,8 +2,20 @@ import psycopg2
 import os
 from contextlib import contextmanager
 import json
+from pathlib import Path
+from dotenv import load_dotenv
+
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 DATABASE_URL = os.getenv("DATABASE_URL_RAILWAY") #
+
+# Добавим проверку, чтобы сразу видеть ошибку в логах, если адреса нет
+if not DATABASE_URL:
+    print("❌ ОШИБКА: DATABASE_URL_RAILWAY не найден в .env или переменных окружения!")
+else:
+    # Для безопасности печатаем только хост, скрывая пароль
+    print(f"✅ database.py успешно загрузил URL (хост: {DATABASE_URL.split('@')[-1].split(':')[0]})")
 
 @contextmanager
 def get_db_connection_context(): #
