@@ -18,4 +18,4 @@ COPY backend/ /app/backend/
 ENV PYTHONPATH=/app
 
 # запуск агента
-CMD ["python", "-u", "/app/backend/agent.py"]
+CMD ["python", "-u", "backend/agent.py", "start"]
