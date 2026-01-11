@@ -15,6 +15,44 @@ from livekit.agents.voice import room_io
 
 load_dotenv()
 
+# =========================
+# GLOBAL SINGLETON OBJECTS
+# =========================
+
+_LLM = None
+_STT = None
+_TTS = None
+_VAD = None
+
+def get_pipeline_components():
+    """
+    Create STT/LLM/TTS/VAD once and reuse for all jobs.
+    This removes per-job cold start overhead.
+    """
+    global _LLM, _STT, _TTS, _VAD
+
+    if _LLM is not None and _STT is not None and _TTS is not None and _VAD is not None:
+        return _LLM, _STT, _TTS, _VAD
+
+    # --- LLM / STT / TTS KEYS ---
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    # Create once:
+    _LLM = openai.LLM(model="gpt-4o", api_key=api_key)
+    _STT = openai.STT(model="whisper-1", language="de")
+    _TTS = openai.TTS(model="tts-1", voice="alloy")
+
+    # Create once (this is often the slow one):
+    _VAD = silero.VAD.load(
+        min_speech_duration=0.1,
+        min_silence_duration=0.3,  # was 0.5 -> faster "end of speech"
+    )
+
+    return _LLM, _STT, _TTS, _VAD
+
+
 # === НАСТРОЙКА ЛОГИРОВАНИЯ ===
 if not os.path.exists("logs"):
     os.makedirs("logs")
@@ -92,10 +130,10 @@ from typing import Optional
 async def entrypoint(ctx: JobContext):
     logging.info("✨ Starting German Teacher Agent...")
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        logging.error("❌ OPENAI_API_KEY is not set")
-        return
+    # api_key = os.environ.get("OPENAI_API_KEY")
+    # if not api_key:
+    #     logging.error("❌ OPENAI_API_KEY is not set")
+    #     return
 
     # 1) Подключаемся к комнате
     await ctx.connect()
@@ -127,15 +165,6 @@ async def entrypoint(ctx: JobContext):
 
             # Если за это время кто-то снова подключился — не закрываем
             # Считаем "вернулся", если есть хоть один remote participant
-            # rp = getattr(ctx.room, "remote_participants", None)
-            # has_remote = False
-            # if isinstance(rp, dict):
-            #     has_remote = len(rp) > 0
-            # elif rp is not None:
-            #     try:
-            #         has_remote = len(list(rp)) > 0
-            #     except Exception:
-            #         has_remote = False
 
             if _has_remote_participants():
                 logging.info("✅ Participant returned within timeout — keeping session alive.")
@@ -143,6 +172,8 @@ async def entrypoint(ctx: JobContext):
 
             logging.warning("🧨 No participant returned — closing AgentSession now.")
             try:
+                # Это команда библиотеке LiveKit: "Закрывай лавочку". 
+                # Отключись от сервера, разорви соединение с OpenAI.
                 await session.aclose()
                 stop_event.set()
                 logging.info("✅ Session closed due to participant absence.")
@@ -153,14 +184,12 @@ async def entrypoint(ctx: JobContext):
             logging.info("✅ Disconnect timeout task cancelled (participant returned).")
             return
 
-    # 2) Создаем LLM
-    my_llm = openai.LLM(model="gpt-4o", api_key=api_key)
-    my_stt = openai.STT(model="whisper-1", language="de")
-    my_tts = openai.TTS(model="tts-1", voice="alloy")
-    my_vad = silero.VAD.load(
-        min_speech_duration=0.1,
-        min_silence_duration=0.5
-    )
+    # 2) Create / reuse pipeline components (singleton)
+    try:
+        my_llm, my_stt, my_tts, my_vad = get_pipeline_components()
+    except Exception as e:
+        logging.error(f"❌ Failed to init pipeline components: {e}", exc_info=True)
+        return
 
     # 3) Наша бизнес-логика (пока оставляем класс как есть)
     teacher_logic = GermanTeacherAgent(llm_instance=my_llm)
@@ -168,7 +197,7 @@ async def entrypoint(ctx: JobContext):
 
     # Отримуємо SID сесії (унікальний ID дзвінка)
     # ctx.room.sid - це унікальний ідентифікатор саме цієї сесії розмови
-    # Tools: берем уже готовые FunctionTool из твоего GermanTeacherTools (@llm.function_tool)
+    # Tools: берем уже готовые FunctionTool из GermanTeacherTools (@llm.function_tool)
 
     # ✅ SID: у тебя было "<coroutine object Room.sid ...>"
     # Значит sid - async (либо sid(), либо property, который возвращает coroutine).
@@ -304,7 +333,7 @@ async def entrypoint(ctx: JobContext):
         teacher_tools_instance.log_conversation_mistake
 ]
 
-    # 7) Создаем AgentSession (замена VoicePipelineAgent)
+    # 7) Создаем AgentSession с нашими компонентами
     session = AgentSession(
         stt=my_stt,
         llm=my_llm,
