@@ -136,7 +136,8 @@ You will receive the required number of sentences in a variable **Number of sent
 5.  **Linguistic Style & Realism:**
     * **Authenticity:** The sentences must sound natural and avoid stiff, textbook-like language. Use vocabulary common in everyday conversations.
     * **Integrated Realism:** To make speech more authentic, you may carefully integrate elements of spoken language. **Crucially, these elements must be part of the main sentence and not stand alone.**
-        * *Example of correct integration:* `Ой, честно говоря, мне кажется, что эта гениальная идея нашего шефа в итоге приведёт ко множеству совершенно ненужных проблем.`
+        * *Example of correct integration:* `Мне кажется, что эта гениальная идея нашего шефа в итоге приведёт ко множеству совершенно ненужных проблем.`
+        * *Example of correct integration:* `Ты знаешь, наверное, нам стоит это попробовать.`
         * *Example of incorrect usage:* `Ой! Это плохая идея.`
         * Use elements like *кажется, как бы, честно говоря, да ладно, ну* by embedding them within the sentence's syntax.
 
