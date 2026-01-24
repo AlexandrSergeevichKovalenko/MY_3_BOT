@@ -1,6 +1,12 @@
 import { useState } from 'react';
-import { LiveKitRoom, AudioConference, ConnectionStateToast } from '@livekit/components-react';
+import {
+  LiveKitRoom,
+  ControlBar,
+  ConnectionStateToast,
+  RoomAudioRenderer,
+} from '@livekit/components-react';
 import '@livekit/components-styles';
+import './App.css';
 
 // URL вашего сервера LiveKit
 const livekitUrl = "wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud";
@@ -96,32 +102,40 @@ function App() {
   // Кнопка <button type="submit">: Кнопка для отправки формы. При нажатии запускается событие onSubmit формы, вызывая handleConnect.
 if (!token) {
     return (
-      <div data-lk-theme="default" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <form onSubmit={handleConnect} style={{ display: 'flex', flexDirection: 'column', gap: '15px', width: '300px' }}>
-          <h2 style={{ textAlign: 'center', color: 'white' }}>Вход в урок</h2>
-          
-          {/* ПОЛЕ 1: Telegram ID */}
-          <input
-            type="text"
-            placeholder="Ваш Telegram ID (цифры)"
-            value={telegramID}
-            onChange={(e) => setTelegramID(e.target.value)}
-            style={{ padding: '12px', borderRadius: '5px', border: 'none' }}
-          />
+      <div className="lesson-page lesson-login" data-lk-theme="default">
+        <div className="lesson-bg" aria-hidden="true" />
+        <div className="login-card">
+          <div className="login-header">
+            <span className="pill">Deutsch Tutor</span>
+            <h2>Вход в урок</h2>
+            <p>Подключитесь к разговорной практике и начните диалог с учителем.</p>
+          </div>
+          <form onSubmit={handleConnect} className="login-form">
+            <label className="field">
+              <span>Telegram ID</span>
+              <input
+                type="text"
+                placeholder="Ваш Telegram ID (цифры)"
+                value={telegramID}
+                onChange={(e) => setTelegramID(e.target.value)}
+              />
+            </label>
 
-          {/* ПОЛЕ 2: Имя */}
-          <input
-            type="text"
-            placeholder="Как вас называть? (Имя)"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            style={{ padding: '12px', borderRadius: '5px', border: 'none' }}
-          />
+            <label className="field">
+              <span>Ваше имя</span>
+              <input
+                type="text"
+                placeholder="Как вас называть? (Имя)"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </label>
 
-          <button type="submit" style={{ padding: '12px', cursor: 'pointer', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold' }}>
-            Начать урок
-          </button>
-        </form>
+            <button type="submit" className="primary-button">
+              Начать урок
+            </button>
+          </form>
+        </div>
       </div>
     );
   }
@@ -135,9 +149,63 @@ if (!token) {
       video={false}
       onDisconnected={() => setToken(null)}
       onError={(e) => console.error("LiveKit error:", e)}
-      style={{ height: "100vh" }}
+      className="lesson-page lesson-room"
+      data-lk-theme="default"
     >
-      <AudioConference />
+      <div className="lesson-bg" aria-hidden="true" />
+      <div className="lesson-shell">
+        <header className="lesson-header">
+          <div>
+            <span className="pill">Учитель онлайн</span>
+            <h1>Живая практика немецкого</h1>
+            <p>Говорите свободно, а помощник ведет диалог, исправляет и поддерживает.</p>
+          </div>
+          <div className="lesson-meta">
+            <span>Пользователь: {username}</span>
+            <span>ID: {telegramID}</span>
+          </div>
+        </header>
+
+        <main className="lesson-main">
+          <section className="lesson-hero">
+            <div className="lesson-illustration" aria-hidden="true">
+              <svg viewBox="0 0 320 320" role="img">
+                <defs>
+                  <linearGradient id="bookGlow" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#ffb347" />
+                    <stop offset="100%" stopColor="#ff7e5f" />
+                  </linearGradient>
+                </defs>
+                <circle cx="160" cy="160" r="120" fill="#fff1d6" />
+                <path d="M95 110c0-12 10-22 22-22h58c12 0 22 10 22 22v100c0 8-6 15-14 16-20 2-44 2-66 0-12-1-22-10-22-22z" fill="url(#bookGlow)" />
+                <path d="M185 88h32c12 0 22 10 22 22v100c0 12-10 22-22 22h-32" fill="#ffd7aa" />
+                <path d="M120 135h60M120 165h60M120 195h50" stroke="#6b3a1a" strokeWidth="6" strokeLinecap="round" />
+                <circle cx="210" cy="90" r="26" fill="#6b3a1a" />
+                <path d="M198 86h24v8h-24zM210 72v32" fill="#fff1d6" />
+              </svg>
+            </div>
+            <div className="lesson-copy">
+              <h2>Сфокусируйтесь на голосе</h2>
+              <p>Нажмите на микрофон, чтобы включить речь, и нажмите выход, когда урок завершен.</p>
+              <div className="lesson-tips">
+                <div className="tip">Четко формулируйте ответы, чтобы учитель слышал интонацию.</div>
+                <div className="tip">Если нужно подумать, просто сделайте паузу — связь сохранится.</div>
+              </div>
+            </div>
+          </section>
+
+          <section className="lesson-controls">
+            <h3>Управление уроком</h3>
+            <p>Все основные действия собраны в центре: микрофон, выход и настройки.</p>
+            <div className="lesson-control-bar">
+              <ControlBar />
+            </div>
+            <div className="lesson-hint">Совет: держите окно открытым, чтобы учитель не прерывал сессию.</div>
+          </section>
+        </main>
+      </div>
+
+      <RoomAudioRenderer />
       <ConnectionStateToast />
     </LiveKitRoom>
   );
