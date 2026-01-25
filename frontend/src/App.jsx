@@ -28,6 +28,12 @@ function App() {
   const [webappLoading, setWebappLoading] = useState(false);
   const [bulkReady, setBulkReady] = useState(false);
   const [translationDrafts, setTranslationDrafts] = useState([]);
+  const [originalText, setOriginalText] = useState('');
+  const [userTranslation, setUserTranslation] = useState('');
+  const [resultText, setResultText] = useState('');
+  const [historyItems, setHistoryItems] = useState([]);
+  const [webappError, setWebappError] = useState('');
+  const [webappLoading, setWebappLoading] = useState(false);
 
   // Состояние для хранения токена доступа. Изначально его нет.
   // Мы говорим React'у: "Создай ячейку памяти. Изначально положи туда null (пустоту)".
@@ -201,6 +207,9 @@ function App() {
     if (isWebAppMode && initData) {
       loadHistory();
       loadSentences();
+  useEffect(() => {
+    if (isWebAppMode && initData) {
+      loadHistory();
     }
   }, [initData, isWebAppMode]);
 
@@ -225,6 +234,10 @@ function App() {
     const numberedTranslations = translationDrafts
       .map((item, index) => `${index + 1}. ${item.translation || ''}`)
       .join('\n');
+    if (!originalText || !userTranslation) {
+      setWebappError('Заполните оба поля: оригинал и перевод.');
+      return;
+    }
 
     setWebappLoading(true);
     setWebappError('');
@@ -239,6 +252,8 @@ function App() {
           session_id: sessionId,
           original_text: numberedOriginal,
           user_translation: numberedTranslations,
+          original_text: originalText,
+          user_translation: userTranslation,
         }),
       });
       if (!response.ok) {
@@ -368,6 +383,26 @@ function App() {
               )}
             </section>
 
+            <label className="webapp-field">
+              <span>Оригинал (русский)</span>
+              <textarea
+                rows={4}
+                value={originalText}
+                onChange={(event) => setOriginalText(event.target.value)}
+                placeholder="Например: Я собираюсь переехать в Берлин."
+              />
+            </label>
+
+            <label className="webapp-field">
+              <span>Ваш перевод (немецкий)</span>
+              <textarea
+                rows={4}
+                value={userTranslation}
+                onChange={(event) => setUserTranslation(event.target.value)}
+                placeholder="Например: Ich werde nach Berlin ziehen."
+              />
+            </label>
+
             <button className="primary-button" type="submit" disabled={webappLoading}>
               {webappLoading ? 'Проверяем...' : 'Проверить перевод'}
             </button>
@@ -381,6 +416,7 @@ function App() {
               <pre>{resultText}</pre>
             </section>
           )}
+
 
           <section className="webapp-sentences">
             <div className="webapp-history-head">

@@ -61,6 +61,7 @@ import hashlib
 import json
 import asyncio
 import requests
+
 from uuid import uuid4
 from urllib.parse import parse_qsl
 from flask import Flask, request, jsonify, send_from_directory
@@ -85,6 +86,7 @@ LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 TELEGRAM_Deutsch_BOT_TOKEN = os.getenv("TELEGRAM_Deutsch_BOT_TOKEN")
 TELEGRAM_GROUP_CHAT_ID = os.getenv("TELEGRAM_GROUP_CHAT_ID") or os.getenv("BOT_GROUP_CHAT_ID_Deutsch")
+
 
 if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
     raise RuntimeError("LIVEKIT_API_KEY и LIVEKIT_API_SECRET должны быть установлены")
@@ -171,7 +173,6 @@ def _parse_telegram_init_data(init_data: str) -> dict:
         "chat_instance": data.get("chat_instance"),
     }
 
-
 def _send_group_message(text: str) -> None:
     if not TELEGRAM_GROUP_CHAT_ID:
         raise RuntimeError("TELEGRAM_GROUP_CHAT_ID должен быть установлен")
@@ -186,7 +187,6 @@ def _send_group_message(text: str) -> None:
     )
     if response.status_code >= 400:
         raise RuntimeError(f"Telegram API error: {response.text}")
-
 
 @app.route("/api/telegram/validate", methods=["POST"])
 def validate_telegram_init_data():
@@ -351,6 +351,11 @@ def submit_webapp_group_message():
         return jsonify({"error": f"Ошибка отправки в группу: {exc}"}), 500
 
     return jsonify({"ok": True})
+  
+    data = dict(parse_qsl(init_data, keep_blank_values=True))
+    user_payload = data.get("user")
+    user_data = json.loads(user_payload) if user_payload else None
+    return jsonify({"ok": True, "user": user_data})
 
 
 if __name__ == "__main__":
