@@ -156,7 +156,7 @@ def _telegram_hash_is_valid(init_data: str) -> bool:
     received_hash = dict(parse_qsl(init_data, keep_blank_values=True)).get("hash")
     return hmac.compare_digest(calculated_hash, received_hash or "")
 
-  
+
 def _parse_telegram_init_data(init_data: str) -> dict:
     data = dict(parse_qsl(init_data, keep_blank_values=True))
     user_payload = data.get("user")
@@ -265,6 +265,7 @@ def get_webapp_history():
     user_payload = data.get("user")
     user_data = json.loads(user_payload) if user_payload else None
     return jsonify({"ok": True, "user": user_data})
+
 
 
 if __name__ == "__main__":

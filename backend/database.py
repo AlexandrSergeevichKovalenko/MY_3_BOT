@@ -113,6 +113,15 @@ def ensure_webapp_tables() -> None:
                 );
             """)
 
+            cursor.execute("CREATE SEQUENCE IF NOT EXISTS bt_3_webapp_checks_id_seq;")
+            cursor.execute("""
+                SELECT setval(
+                    'bt_3_webapp_checks_id_seq',
+                    COALESCE((SELECT MAX(id) FROM bt_3_webapp_checks), 1),
+                    true
+                );
+            """)
+
 
 def save_webapp_translation(
     user_id: int,
