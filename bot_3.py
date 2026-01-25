@@ -508,7 +508,10 @@ async def simulate_typing(context, chat_id, duration=3):
 # Buttons in Telegram
 async def send_main_menu(update: Update, context: CallbackContext):
     """Принудительно обновляет главное меню с кнопками."""
+    web_app_url = await asyncio.to_thread(get_webapp_url)
+
     web_app_url = await asyncio.to_thread(get_public_web_url)
+
     keyboard = [
         ["📌 Выбрать тему"],  # ❗ Убедись, что текст здесь правильный
         ["🚀 Начать перевод", "✅ Завершить перевод"],
@@ -559,8 +562,11 @@ def get_public_web_url():
     if url:
         cleaned_url = url.rstrip("/")  # чтобы не было двойных //
         if cleaned_url.endswith("/webapp"):
+            return cleaned_url[: -len("/webapp")]
+        return cleaned_url
             return cleaned_url
         return f"{cleaned_url}/webapp"
+
 
     # 2) Локально (по желанию): fallback
     ngrok_url = get_ngrok_url()
@@ -568,6 +574,12 @@ def get_public_web_url():
         return ngrok_url.rstrip("/")
     
     return "http://localhost:8000"  # Локальный fallback (если нужно)
+
+def get_webapp_url():
+    base_url = get_public_web_url()
+    if base_url.endswith("/webapp"):
+        return base_url
+    return f"{base_url}/webapp"
 
 async def handle_button_click(update: Update, context: CallbackContext):
     """Обрабатывает нажатия на кнопки главного меню."""

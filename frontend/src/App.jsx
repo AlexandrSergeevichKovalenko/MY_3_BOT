@@ -129,6 +129,7 @@ function App() {
   };
 
   useEffect(() => {
+
     if (isWebAppMode && initData) {
       loadHistory();
       loadSentences();
@@ -170,6 +171,13 @@ function App() {
     }, {});
     localStorage.setItem(storageKey, JSON.stringify(payload));
   }, [translationDrafts, webappUser?.id]);
+
+  useEffect(() => {
+    if (isWebAppMode && initData) {
+      loadHistory();
+      loadSentences();
+    }
+  }, [initData, isWebAppMode]);
 
   const handleWebappSubmit = async (event) => {
     event.preventDefault();
@@ -405,7 +413,34 @@ function App() {
     );
   }
 
+  // Если токена еще нет, показываем форму для входа
+  // <form>: Это HTML-тег для сбора данных. Его особенность: он умеет реагировать на нажатие клавиши Enter на клавиатуре.
+  // Когда пользователь нажимает Enter, форма автоматически вызывает функцию, указанную в onSubmit.
+  // В нашем случае это handleConnect.
+  // Таким образом, пользователь может либо нажать кнопку "Войти",
+  // либо просто нажать Enter после ввода имени, и форма все равно сработает.
+  // onSubmit — это событие "Отправка формы" (когда нажали кнопку submit или Enter).
+  // e.preventDefault() внутри handleConnect предотвращает стандартное поведение формы — перезагрузку страницы.
+  // {handleConnect} — мы говорим: "Когда случится отправка, НЕ перезагружай страницу (как делают старые сайты), а запусти нашу функцию handleConnect".
+  // <h2>: Header 2. Заголовок второго уровня (жирный, крупный текст). Просто надпись.
+  // Поле ввода <input> (Связь с памятью):
+  // Это самая сложная концепция React, называется "Управляемый компонент" (Controlled Component).
+  // Идея в том, что значение поля ввода (input) "связывается" с состоянием React (переменная username).
+  // Когда пользователь вводит текст, срабатывает событие onChange.
+  // Мы ловим это событие и вызываем setUsername с новым значением e.target.value.
+  // Это обновляет состояние username в React.
+  // Поскольку состояние изменилось, React перерисовывает компонент App,
+  // и новое значение username снова "попадает" в поле ввода через атрибут value={username}.
+  // Таким образом, поле ввода всегда "отражает" текущее состояние username.
+  // Итог: Поле ввода и состояние username "связаны" друг с другом.
+  // Любое изменение в поле ввода обновляет состояние,
+  // а любое изменение состояния обновляет отображаемое значение в поле ввода.
+  // Это позволяет нам точно контролировать, что находится в поле ввода в любой момент времени.
+  // Кнопка <button type="submit">: Кнопка для отправки формы. При нажатии запускается событие onSubmit формы, вызывая handleConnect.
+if (!token) {
+
   if (!token) {
+
     return (
       <div className="lesson-page lesson-login" data-lk-theme="default">
         <div className="lesson-bg" aria-hidden="true" />
