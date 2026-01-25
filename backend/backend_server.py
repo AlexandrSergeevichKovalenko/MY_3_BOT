@@ -69,9 +69,6 @@ from livekit.api import AccessToken, VideoGrants
 from pathlib import Path
 from backend.openai_manager import run_check_translation
 from backend.database import (
-from openai_manager import run_check_translation
-from database import (
-
     ensure_webapp_tables,
     get_webapp_translation_history,
     save_webapp_translation,
