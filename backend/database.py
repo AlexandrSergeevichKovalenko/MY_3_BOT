@@ -112,6 +112,7 @@ def ensure_webapp_tables() -> None:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+
             cursor.execute("CREATE SEQUENCE IF NOT EXISTS bt_3_webapp_checks_id_seq;")
             cursor.execute("""
                 SELECT setval(

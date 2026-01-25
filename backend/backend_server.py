@@ -83,6 +83,7 @@ LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 TELEGRAM_Deutsch_BOT_TOKEN = os.getenv("TELEGRAM_Deutsch_BOT_TOKEN")
 
+
 if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
     raise RuntimeError("LIVEKIT_API_KEY и LIVEKIT_API_SECRET должны быть установлены")
 
@@ -259,6 +260,12 @@ def get_webapp_history():
 
     history = get_webapp_translation_history(user_id=user_id, limit=int(limit))
     return jsonify({"ok": True, "items": history})
+
+    data = dict(parse_qsl(init_data, keep_blank_values=True))
+    user_payload = data.get("user")
+    user_data = json.loads(user_payload) if user_payload else None
+    return jsonify({"ok": True, "user": user_data})
+
 
 
 if __name__ == "__main__":
