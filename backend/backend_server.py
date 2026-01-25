@@ -59,6 +59,7 @@ import os
 import hmac
 import hashlib
 import json
+
 import asyncio
 from uuid import uuid4
 from urllib.parse import parse_qsl
@@ -88,7 +89,7 @@ if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN должен быть установлен")
-
+    
 ensure_webapp_tables()
 
 # === Путь к собранному фронту (frontend/dist) ===
@@ -155,7 +156,6 @@ def _telegram_hash_is_valid(init_data: str) -> bool:
     received_hash = dict(parse_qsl(init_data, keep_blank_values=True)).get("hash")
     return hmac.compare_digest(calculated_hash, received_hash or "")
 
-
 def _parse_telegram_init_data(init_data: str) -> dict:
     data = dict(parse_qsl(init_data, keep_blank_values=True))
     user_payload = data.get("user")
@@ -167,7 +167,6 @@ def _parse_telegram_init_data(init_data: str) -> dict:
         "chat_type": data.get("chat_type"),
         "chat_instance": data.get("chat_instance"),
     }
-
 
 @app.route("/api/telegram/validate", methods=["POST"])
 def validate_telegram_init_data():
@@ -259,6 +258,10 @@ def get_webapp_history():
 
     history = get_webapp_translation_history(user_id=user_id, limit=int(limit))
     return jsonify({"ok": True, "items": history})
+    data = dict(parse_qsl(init_data, keep_blank_values=True))
+    user_payload = data.get("user")
+    user_data = json.loads(user_payload) if user_payload else None
+    return jsonify({"ok": True, "user": user_data})
 
 
 if __name__ == "__main__":
