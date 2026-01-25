@@ -557,7 +557,10 @@ def get_public_web_url():
     # 1) Railway/production: берём стабильный URL
     url = os.getenv("WEB_APP_URL")
     if url:
-        return url.rstrip("/")  # чтобы не было двойных //
+        cleaned_url = url.rstrip("/")  # чтобы не было двойных //
+        if cleaned_url.endswith("/webapp"):
+            return cleaned_url
+        return f"{cleaned_url}/webapp"
 
     # 2) Локально (по желанию): fallback
     ngrok_url = get_ngrok_url()
