@@ -96,6 +96,91 @@ def init_db(): #
 
     print("✅ Инициализация базы данных завершена.")
 
+
+def ensure_webapp_tables() -> None:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bt_3_webapp_checks (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    username TEXT,
+                    session_id TEXT,
+                    original_text TEXT NOT NULL,
+                    user_translation TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cursor.execute("CREATE SEQUENCE IF NOT EXISTS bt_3_webapp_checks_id_seq;")
+            cursor.execute("""
+                SELECT setval(
+                    'bt_3_webapp_checks_id_seq',
+                    COALESCE((SELECT MAX(id) FROM bt_3_webapp_checks), 1),
+                    true
+                );
+            """)
+
+
+def save_webapp_translation(
+    user_id: int,
+    username: str | None,
+    session_id: str | None,
+    original_text: str,
+    user_translation: str,
+    result: str,
+) -> None:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO bt_3_webapp_checks (
+                    user_id,
+                    username,
+                    session_id,
+                    original_text,
+                    user_translation,
+                    result
+                )
+                VALUES (%s, %s, %s, %s, %s, %s);
+            """, (
+                user_id,
+                username,
+                session_id,
+                original_text,
+                user_translation,
+                result,
+            ))
+
+
+def get_webapp_translation_history(user_id: int, limit: int = 20) -> list[dict]:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    id,
+                    session_id,
+                    original_text,
+                    user_translation,
+                    result,
+                    created_at
+                FROM bt_3_webapp_checks
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s;
+            """, (user_id, limit))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "session_id": row[1],
+                    "original_text": row[2],
+                    "user_translation": row[3],
+                    "result": row[4],
+                    "created_at": row[5].isoformat() if row[5] else None,
+                }
+                for row in rows
+            ]
+
 # --- Новые функции для ассистента по продажам ---
 
 async def get_client_by_identifier(identifier: str) -> dict | None:
