@@ -59,7 +59,6 @@ import os
 import hmac
 import hashlib
 import json
-
 import asyncio
 from uuid import uuid4
 from urllib.parse import parse_qsl
@@ -68,8 +67,11 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from livekit.api import AccessToken, VideoGrants
 from pathlib import Path
+from backend.openai_manager import run_check_translation
+from backend.database import (
 from openai_manager import run_check_translation
 from database import (
+
     ensure_webapp_tables,
     get_webapp_translation_history,
     save_webapp_translation,
@@ -82,14 +84,15 @@ CORS(app)
 
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_Deutsch_BOT_TOKEN = os.getenv("TELEGRAM_Deutsch_BOT_TOKEN")
+
 
 if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
     raise RuntimeError("LIVEKIT_API_KEY и LIVEKIT_API_SECRET должны быть установлены")
 
-if not TELEGRAM_BOT_TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN должен быть установлен")
-    
+if not TELEGRAM_Deutsch_BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_Deutsch_BOT_TOKEN должен быть установлен")
+
 ensure_webapp_tables()
 
 # === Путь к собранному фронту (frontend/dist) ===
@@ -145,7 +148,7 @@ def _telegram_hash_is_valid(init_data: str) -> bool:
     data_check_string = _build_telegram_data_check_string(init_data)
     secret_key = hmac.new(
         b"WebAppData",
-        TELEGRAM_BOT_TOKEN.encode("utf-8"),
+        TELEGRAM_Deutsch_BOT_TOKEN.encode("utf-8"),
         hashlib.sha256,
     ).digest()
     calculated_hash = hmac.new(
@@ -156,6 +159,7 @@ def _telegram_hash_is_valid(init_data: str) -> bool:
     received_hash = dict(parse_qsl(init_data, keep_blank_values=True)).get("hash")
     return hmac.compare_digest(calculated_hash, received_hash or "")
 
+  
 def _parse_telegram_init_data(init_data: str) -> dict:
     data = dict(parse_qsl(init_data, keep_blank_values=True))
     user_payload = data.get("user")
@@ -167,6 +171,7 @@ def _parse_telegram_init_data(init_data: str) -> dict:
         "chat_type": data.get("chat_type"),
         "chat_instance": data.get("chat_instance"),
     }
+
 
 @app.route("/api/telegram/validate", methods=["POST"])
 def validate_telegram_init_data():
@@ -258,6 +263,7 @@ def get_webapp_history():
 
     history = get_webapp_translation_history(user_id=user_id, limit=int(limit))
     return jsonify({"ok": True, "items": history})
+
     data = dict(parse_qsl(init_data, keep_blank_values=True))
     user_payload = data.get("user")
     user_data = json.loads(user_payload) if user_payload else None
