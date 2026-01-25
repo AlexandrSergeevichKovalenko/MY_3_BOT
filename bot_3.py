@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo, KeyboardButton
 from telegram.ext import CallbackQueryHandler
 import hashlib
 import re
@@ -508,11 +508,13 @@ async def simulate_typing(context, chat_id, duration=3):
 # Buttons in Telegram
 async def send_main_menu(update: Update, context: CallbackContext):
     """Принудительно обновляет главное меню с кнопками."""
+    web_app_url = await asyncio.to_thread(get_public_web_url)
     keyboard = [
         ["📌 Выбрать тему"],  # ❗ Убедись, что текст здесь правильный
         ["🚀 Начать перевод", "✅ Завершить перевод"],
         ["📜 Проверить перевод", "🟡 Посмотреть свою статистику"],
-        ["🎙 Начать урок", "👥 Групповой звонок"]
+        ["🎙 Начать урок", "👥 Групповой звонок"],
+        [KeyboardButton("🌐 Web App", web_app=WebAppInfo(url=web_app_url))]
     ]
     
     # создаем в словаре клю service_message_ids Список для хранения всех id Сообщений, Для того чтобы потом можно было их удалить после выполнения перевода
