@@ -61,6 +61,7 @@ import hashlib
 import json
 import asyncio
 import requests
+
 from uuid import uuid4
 from urllib.parse import parse_qsl
 from flask import Flask, request, jsonify, send_from_directory
@@ -351,6 +352,12 @@ def submit_webapp_group_message():
         return jsonify({"error": f"Ошибка отправки в группу: {exc}"}), 500
 
     return jsonify({"ok": True})
+
+
+    data = dict(parse_qsl(init_data, keep_blank_values=True))
+    user_payload = data.get("user")
+    user_data = json.loads(user_payload) if user_payload else None
+    return jsonify({"ok": True, "user": user_data})
 
 
 if __name__ == "__main__":

@@ -509,6 +509,9 @@ async def simulate_typing(context, chat_id, duration=3):
 async def send_main_menu(update: Update, context: CallbackContext):
     """Принудительно обновляет главное меню с кнопками."""
     web_app_url = await asyncio.to_thread(get_webapp_url)
+
+    web_app_url = await asyncio.to_thread(get_public_web_url)
+
     keyboard = [
         ["📌 Выбрать тему"],  # ❗ Убедись, что текст здесь правильный
         ["🚀 Начать перевод", "✅ Завершить перевод"],
@@ -523,7 +526,7 @@ async def send_main_menu(update: Update, context: CallbackContext):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     # 1️⃣ Удаляем старую клавиатуру
-    #await update.message.reply_text("⏳ Обновляем меню...", reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True))
+    await update.message.reply_text("⏳ Обновляем меню...", reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True))
 
     # 2️⃣ Отправляем новое меню
     await update.message.reply_text("Используйте кнопки:", reply_markup=reply_markup)
@@ -561,6 +564,9 @@ def get_public_web_url():
         if cleaned_url.endswith("/webapp"):
             return cleaned_url[: -len("/webapp")]
         return cleaned_url
+            return cleaned_url
+        return f"{cleaned_url}/webapp"
+
 
     # 2) Локально (по желанию): fallback
     ngrok_url = get_ngrok_url()
