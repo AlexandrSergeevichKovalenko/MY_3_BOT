@@ -282,6 +282,58 @@ body {
   gap: 12px;
 }
 
+.webapp-sentences {
+  display: grid;
+  gap: 12px;
+}
+
+.webapp-sentences ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  color: #3c332b;
+  font-size: 14px;
+}
+
+.webapp-sentences-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.webapp-translation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.webapp-translation-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff8ee;
+  border: 1px solid rgba(60, 51, 43, 0.1);
+  font-size: 14px;
+}
+
+.webapp-translation-item textarea {
+  resize: vertical;
+  border-radius: 12px;
+  border: 1px solid rgba(60, 51, 43, 0.18);
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  background: #fffdfa;
+}
+
+.webapp-sentences li {
+  background: #fff3f2;
+  border: 1px solid rgba(60, 51, 43, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
 .webapp-history-head {
   display: flex;
   align-items: center;

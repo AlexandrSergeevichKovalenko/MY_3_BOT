@@ -182,6 +182,39 @@ def get_webapp_translation_history(user_id: int, limit: int = 20) -> list[dict]:
                 for row in rows
             ]
 
+
+def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT date
+                FROM bt_3_daily_sentences
+                WHERE user_id = %s
+                ORDER BY date DESC
+                LIMIT 1;
+            """, (user_id,))
+            latest = cursor.fetchone()
+            if not latest:
+                return []
+
+            latest_date = latest[0]
+            cursor.execute("""
+                SELECT id_for_mistake_table, sentence
+                FROM bt_3_daily_sentences
+                WHERE user_id = %s AND date = %s
+                ORDER BY id_for_mistake_table ASC
+                LIMIT %s;
+            """, (user_id, latest_date, limit))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id_for_mistake_table": row[0],
+                    "sentence": row[1],
+                }
+                for row in rows
+            ]
+
+
 # --- Новые функции для ассистента по продажам ---
 
 async def get_client_by_identifier(identifier: str) -> dict | None:

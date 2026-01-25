@@ -21,6 +21,13 @@ function App() {
   const [initData, setInitData] = useState(telegramApp?.initData || '');
   const [sessionId, setSessionId] = useState(null);
   const [webappUser, setWebappUser] = useState(null);
+  const [resultText, setResultText] = useState('');
+  const [historyItems, setHistoryItems] = useState([]);
+  const [sentences, setSentences] = useState([]);
+  const [webappError, setWebappError] = useState('');
+  const [webappLoading, setWebappLoading] = useState(false);
+  const [bulkReady, setBulkReady] = useState(false);
+  const [translationDrafts, setTranslationDrafts] = useState([]);
   const [originalText, setOriginalText] = useState('');
   const [userTranslation, setUserTranslation] = useState('');
   const [resultText, setResultText] = useState('');
@@ -139,6 +146,67 @@ function App() {
     }
   };
 
+  const loadSentences = async () => {
+    if (!initData) {
+      return;
+    }
+    try {
+      const response = await fetch('/api/webapp/sentences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, limit: 7 }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data = await response.json();
+      setSentences(data.items || []);
+      setBulkReady(false);
+    } catch (error) {
+      setWebappError(`Ошибка загрузки предложений: ${error.message}`);
+    }
+  };
+
+  useEffect(() => {
+    if (!webappUser?.id || sentences.length === 0) {
+      return;
+    }
+    const storageKey = `webappDrafts_${webappUser.id}`;
+    const stored = localStorage.getItem(storageKey);
+    let initial = sentences.map((item) => ({
+      id_for_mistake_table: item.id_for_mistake_table,
+      translation: '',
+    }));
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        initial = sentences.map((item) => ({
+          id_for_mistake_table: item.id_for_mistake_table,
+          translation: parsed[item.id_for_mistake_table] || '',
+        }));
+      } catch (error) {
+        console.warn('Failed to parse saved drafts', error);
+      }
+    }
+    setTranslationDrafts(initial);
+  }, [sentences, webappUser?.id]);
+
+  useEffect(() => {
+    if (!webappUser?.id || translationDrafts.length === 0) {
+      return;
+    }
+    const storageKey = `webappDrafts_${webappUser.id}`;
+    const payload = translationDrafts.reduce((acc, draft) => {
+      acc[draft.id_for_mistake_table] = draft.translation;
+      return acc;
+    }, {});
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+  }, [translationDrafts, webappUser?.id]);
+
+  useEffect(() => {
+    if (isWebAppMode && initData) {
+      loadHistory();
+      loadSentences();
   useEffect(() => {
     if (isWebAppMode && initData) {
       loadHistory();
@@ -151,10 +219,26 @@ function App() {
       setWebappError('initData не найдено. Откройте Web App внутри Telegram.');
       return;
     }
+    if (sentences.length === 0) {
+      setWebappError('Нет предложений для перевода.');
+      return;
+    }
+    if (translationDrafts.every((item) => !item.translation.trim())) {
+      setWebappError('Заполните хотя бы один перевод.');
+      return;
+    }
+
+    const numberedOriginal = sentences
+      .map((item, index) => `${index + 1}. ${item.sentence}`)
+      .join('\n');
+    const numberedTranslations = translationDrafts
+      .map((item, index) => `${index + 1}. ${item.translation || ''}`)
+      .join('\n');
     if (!originalText || !userTranslation) {
       setWebappError('Заполните оба поля: оригинал и перевод.');
       return;
     }
+
     setWebappLoading(true);
     setWebappError('');
     setResultText('');
@@ -166,6 +250,8 @@ function App() {
         body: JSON.stringify({
           initData,
           session_id: sessionId,
+          original_text: numberedOriginal,
+          user_translation: numberedTranslations,
           original_text: originalText,
           user_translation: userTranslation,
         }),
@@ -178,6 +264,57 @@ function App() {
       await loadHistory();
     } catch (error) {
       setWebappError(`Ошибка проверки: ${error.message}`);
+    } finally {
+      setWebappLoading(false);
+    }
+  };
+
+  const handleFillTranslations = () => {
+    if (sentences.length === 0) {
+      return;
+    }
+    const drafts = sentences.map((item) => ({
+      id_for_mistake_table: item.id_for_mistake_table,
+      translation: '',
+    }));
+    setTranslationDrafts(drafts);
+    setBulkReady(true);
+  };
+
+  const handleDraftChange = (id, value) => {
+    setTranslationDrafts((prev) =>
+      prev.map((item) =>
+        item.id_for_mistake_table === id ? { ...item, translation: value } : item
+      )
+    );
+  };
+
+  const handleSubmitToGroup = async () => {
+    if (!initData) {
+      setWebappError('initData не найдено. Откройте Web App внутри Telegram.');
+      return;
+    }
+    if (translationDrafts.every((item) => !item.translation.trim())) {
+      setWebappError('Заполните хотя бы один перевод.');
+      return;
+    }
+    setWebappLoading(true);
+    setWebappError('');
+    try {
+      const response = await fetch('/api/webapp/submit-group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          translations: translationDrafts,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      setWebappError('Отправлено в группу ✅');
+    } catch (error) {
+      setWebappError(`Ошибка отправки в группу: ${error.message}`);
     } finally {
       setWebappLoading(false);
     }
@@ -215,6 +352,37 @@ function App() {
           )}
 
           <form className="webapp-form" onSubmit={handleWebappSubmit}>
+            <section className="webapp-translation-list">
+              <div className="webapp-history-head">
+                <h3>Ваши переводы</h3>
+                <button type="button" onClick={handleSubmitToGroup} className="secondary-button">
+                  Отправить в группу
+                </button>
+              </div>
+              {sentences.length === 0 ? (
+                <p className="webapp-muted">Пока нет предложений для перевода.</p>
+              ) : (
+                sentences.map((item, index) => {
+                  const draft = translationDrafts.find(
+                    (entry) => entry.id_for_mistake_table === item.id_for_mistake_table
+                  );
+                  return (
+                    <label key={item.id_for_mistake_table} className="webapp-translation-item">
+                      <span>
+                        {index + 1}. {item.sentence}
+                      </span>
+                      <textarea
+                        rows={3}
+                        value={draft?.translation || ''}
+                        onChange={(event) => handleDraftChange(item.id_for_mistake_table, event.target.value)}
+                        placeholder="Введите перевод..."
+                      />
+                    </label>
+                  );
+                })
+              )}
+            </section>
+
             <label className="webapp-field">
               <span>Оригинал (русский)</span>
               <textarea
@@ -248,6 +416,33 @@ function App() {
               <pre>{resultText}</pre>
             </section>
           )}
+
+
+          <section className="webapp-sentences">
+            <div className="webapp-history-head">
+              <h3>Последние предложения</h3>
+              <div className="webapp-sentences-actions">
+                <button type="button" onClick={loadSentences} className="secondary-button">
+                  Обновить
+                </button>
+                <button type="button" onClick={handleFillTranslations} className="secondary-button">
+                  Заполнить переводы
+                </button>
+              </div>
+            </div>
+            {sentences.length === 0 ? (
+              <p className="webapp-muted">Пока нет предложений для перевода.</p>
+            ) : (
+              <ol>
+                {sentences.map((item) => (
+                  <li key={item.id_for_mistake_table}>{item.sentence}</li>
+                ))}
+              </ol>
+            )}
+            {bulkReady && (
+              <p className="webapp-muted">Черновик заполнен. Осталось дописать переводы.</p>
+            )}
+          </section>
 
           <section className="webapp-history">
             <div className="webapp-history-head">

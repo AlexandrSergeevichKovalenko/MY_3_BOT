@@ -60,6 +60,8 @@ import hmac
 import hashlib
 import json
 import asyncio
+import requests
+
 from uuid import uuid4
 from urllib.parse import parse_qsl
 from flask import Flask, request, jsonify, send_from_directory
@@ -71,6 +73,7 @@ from backend.openai_manager import run_check_translation
 from backend.database import (
     ensure_webapp_tables,
     get_webapp_translation_history,
+    get_latest_daily_sentences,
     save_webapp_translation,
 )
 
@@ -82,6 +85,7 @@ CORS(app)
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 TELEGRAM_Deutsch_BOT_TOKEN = os.getenv("TELEGRAM_Deutsch_BOT_TOKEN")
+TELEGRAM_GROUP_CHAT_ID = os.getenv("TELEGRAM_GROUP_CHAT_ID") or os.getenv("BOT_GROUP_CHAT_ID_Deutsch")
 
 
 if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
@@ -169,6 +173,20 @@ def _parse_telegram_init_data(init_data: str) -> dict:
         "chat_instance": data.get("chat_instance"),
     }
 
+def _send_group_message(text: str) -> None:
+    if not TELEGRAM_GROUP_CHAT_ID:
+        raise RuntimeError("TELEGRAM_GROUP_CHAT_ID должен быть установлен")
+    url = f"https://api.telegram.org/bot{TELEGRAM_Deutsch_BOT_TOKEN}/sendMessage"
+    response = requests.post(
+        url,
+        json={
+            "chat_id": TELEGRAM_GROUP_CHAT_ID,
+            "text": text,
+        },
+        timeout=15,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"Telegram API error: {response.text}")
 
 @app.route("/api/telegram/validate", methods=["POST"])
 def validate_telegram_init_data():
@@ -261,11 +279,83 @@ def get_webapp_history():
     history = get_webapp_translation_history(user_id=user_id, limit=int(limit))
     return jsonify({"ok": True, "items": history})
 
+
+@app.route("/api/webapp/sentences", methods=["POST"])
+def get_webapp_sentences():
+    payload = request.get_json(silent=True) or {}
+    init_data = payload.get("initData")
+    limit = payload.get("limit", 7)
+
+    if not init_data:
+        return jsonify({"error": "initData обязателен"}), 400
+
+    if not _telegram_hash_is_valid(init_data):
+        return jsonify({"error": "initData не прошёл проверку"}), 401
+
+    parsed = _parse_telegram_init_data(init_data)
+    user_data = parsed.get("user") or {}
+    user_id = user_data.get("id")
+
+    if not user_id:
+        return jsonify({"error": "user_id отсутствует в initData"}), 400
+
+    sentences = get_latest_daily_sentences(user_id=user_id, limit=int(limit))
+    return jsonify({"ok": True, "items": sentences})
+
+
+@app.route("/api/webapp/submit-group", methods=["POST"])
+def submit_webapp_group_message():
+    payload = request.get_json(silent=True) or {}
+    init_data = payload.get("initData")
+    translations = payload.get("translations") or []
+
+    if not init_data:
+        return jsonify({"error": "initData обязателен"}), 400
+    if not translations:
+        return jsonify({"error": "translations обязательны"}), 400
+
+    if not _telegram_hash_is_valid(init_data):
+        return jsonify({"error": "initData не прошёл проверку"}), 401
+
+    parsed = _parse_telegram_init_data(init_data)
+    user_data = parsed.get("user") or {}
+    user_id = user_data.get("id")
+    user_name = user_data.get("first_name") or "User"
+    username = user_data.get("username")
+
+    if not user_id:
+        return jsonify({"error": "user_id отсутствует в initData"}), 400
+
+    latest_sentences = get_latest_daily_sentences(user_id=user_id, limit=50)
+    sentence_map = {
+        item["id_for_mistake_table"]: item["sentence"]
+        for item in latest_sentences
+    }
+
+    lines = [f"WebApp submission от {user_name}" + (f" (@{username})" if username else "")]
+    for idx, entry in enumerate(translations, start=1):
+        sentence_id = entry.get("id_for_mistake_table")
+        translation = (entry.get("translation") or "").strip()
+        if not translation:
+            continue
+        original = sentence_map.get(sentence_id, "—")
+        lines.append(f"{idx}. {original}")
+        lines.append(f"DE: {translation}")
+
+    if len(lines) == 1:
+        return jsonify({"error": "Нет заполненных переводов"}), 400
+
+    try:
+        _send_group_message("\n".join(lines))
+    except Exception as exc:
+        return jsonify({"error": f"Ошибка отправки в группу: {exc}"}), 500
+
+    return jsonify({"ok": True})
+  
     data = dict(parse_qsl(init_data, keep_blank_values=True))
     user_payload = data.get("user")
     user_data = json.loads(user_payload) if user_payload else None
     return jsonify({"ok": True, "user": user_data})
-
 
 
 if __name__ == "__main__":
