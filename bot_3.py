@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo, KeyboardButton
 from telegram.ext import CallbackQueryHandler
 import hashlib
 import re
@@ -508,11 +508,13 @@ async def simulate_typing(context, chat_id, duration=3):
 # Buttons in Telegram
 async def send_main_menu(update: Update, context: CallbackContext):
     """Принудительно обновляет главное меню с кнопками."""
+    web_app_url = await asyncio.to_thread(get_webapp_url)
     keyboard = [
         ["📌 Выбрать тему"],  # ❗ Убедись, что текст здесь правильный
         ["🚀 Начать перевод", "✅ Завершить перевод"],
         ["📜 Проверить перевод", "🟡 Посмотреть свою статистику"],
-        ["🎙 Начать урок", "👥 Групповой звонок"]
+        ["🎙 Начать урок", "👥 Групповой звонок"],
+        [KeyboardButton("🌐 Web App", web_app=WebAppInfo(url=web_app_url))]
     ]
     
     # создаем в словаре клю service_message_ids Список для хранения всех id Сообщений, Для того чтобы потом можно было их удалить после выполнения перевода
@@ -555,7 +557,10 @@ def get_public_web_url():
     # 1) Railway/production: берём стабильный URL
     url = os.getenv("WEB_APP_URL")
     if url:
-        return url.rstrip("/")  # чтобы не было двойных //
+        cleaned_url = url.rstrip("/")  # чтобы не было двойных //
+        if cleaned_url.endswith("/webapp"):
+            return cleaned_url[: -len("/webapp")]
+        return cleaned_url
 
     # 2) Локально (по желанию): fallback
     ngrok_url = get_ngrok_url()
@@ -563,6 +568,12 @@ def get_public_web_url():
         return ngrok_url.rstrip("/")
     
     return "http://localhost:8000"  # Локальный fallback (если нужно)
+
+def get_webapp_url():
+    base_url = get_public_web_url()
+    if base_url.endswith("/webapp"):
+        return base_url
+    return f"{base_url}/webapp"
 
 async def handle_button_click(update: Update, context: CallbackContext):
     """Обрабатывает нажатия на кнопки главного меню."""
@@ -2151,9 +2162,35 @@ async def get_original_sentences(user_id, context: CallbackContext):
             #print(f"🚀 Сгенерированные GPT предложения: {gpt_sentences}") # ✅ Логируем результат
             
         
+        def normalize_sentences(items):
+            normalized = []
+            seen = set()
+            for item in items:
+                if not item:
+                    continue
+                text = str(item).strip()
+                if not text:
+                    continue
+                for line in text.split("\n"):
+                    candidate = re.sub(r"^\s*\d+\.\s*", "", line).strip()
+                    if not candidate:
+                        continue
+                    if candidate in seen:
+                        continue
+                    seen.add(candidate)
+                    normalized.append(candidate)
+            return normalized
+
         # ✅ Проверяем финальный список предложений
-        final_sentences = rows + mistake_sentences + gpt_sentences
+        final_sentences = normalize_sentences(rows + mistake_sentences + gpt_sentences)
         print(f"✅ Финальный список предложений: {final_sentences}")
+
+        attempts = 0
+        while len(final_sentences) < 7 and attempts < 3:
+            needed = 7 - len(final_sentences)
+            extra_sentences = await generate_sentences(user_id, needed, context)
+            final_sentences = normalize_sentences(final_sentences + extra_sentences)
+            attempts += 1
         
         if not final_sentences:
             print("❌ Ошибка: Не удалось получить предложения!")
