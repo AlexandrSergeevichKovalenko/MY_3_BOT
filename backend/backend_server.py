@@ -172,6 +172,7 @@ def _parse_telegram_init_data(init_data: str) -> dict:
     }
 
 
+
 def _normalize_sentence_text(text: str) -> str:
     cleaned = text.strip()
     if not cleaned:
@@ -192,7 +193,6 @@ def _dedupe_sentences(items: list[dict]) -> list[dict]:
         seen.add(key)
         result.append({**item, "sentence": normalized})
     return result
-
 
 def _send_group_message(text: str) -> None:
     if not TELEGRAM_GROUP_CHAT_ID:
@@ -324,6 +324,7 @@ def get_webapp_sentences():
     sentences = get_latest_daily_sentences(user_id=user_id, limit=int(limit))
     deduped = _dedupe_sentences(sentences)
     return jsonify({"ok": True, "items": deduped})
+
 
 
 @app.route("/api/webapp/submit-group", methods=["POST"])
