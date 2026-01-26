@@ -30,8 +30,16 @@ function App() {
   const [bulkReady, setBulkReady] = useState(false);
   const [translationDrafts, setTranslationDrafts] = useState([]);
 
-  // LiveKit login state
+  // Состояние для хранения токена доступа. Изначально его нет.
+  // Мы говорим React'у: "Создай ячейку памяти. Изначально положи туда null (пустоту)".
+  // Когда мы захотим обновить эту ячейку, мы будем использовать функцию setToken.
+  // Каждый раз, когда мы вызываем setToken с новым значением, React "замечает" это изменение
+  // и перерисовывает компонент App с новым значением token.
+  // Аналогично: const [username, setUsername] = useState(''); — создали память для имени пользователя, изначально пустая строка.
+  // Итог: useState — это способ "создать память" внутри функционального компонента React.
   const [token, setToken] = useState(null);
+
+  // LiveKit login state
   const [telegramID, setTelegramID] = useState('');
   const [username, setUsername] = useState('');
 
@@ -129,13 +137,6 @@ function App() {
   };
 
   useEffect(() => {
-    if (isWebAppMode && initData) {
-      loadHistory();
-      loadSentences();
-    }
-  }, [initData, isWebAppMode]);
-
-  useEffect(() => {
     if (!webappUser?.id || sentences.length === 0) {
       return;
     }
@@ -168,6 +169,13 @@ function App() {
     const storageKey = `webappDrafts_${webappUser.id}`;
     localStorage.setItem(storageKey, JSON.stringify(translationDrafts));
   }, [translationDrafts, webappUser?.id]);
+
+  useEffect(() => {
+    if (isWebAppMode && initData) {
+      loadHistory();
+      loadSentences();
+    }
+  }, [initData, isWebAppMode]);
 
   const handleWebappSubmit = async (event) => {
     event.preventDefault();
@@ -404,7 +412,31 @@ function App() {
     );
   }
 
-  if (!token) {
+  // Если токена еще нет, показываем форму для входа
+  // <form>: Это HTML-тег для сбора данных. Его особенность: он умеет реагировать на нажатие клавиши Enter на клавиатуре.
+  // Когда пользователь нажимает Enter, форма автоматически вызывает функцию, указанную в onSubmit.
+  // В нашем случае это handleConnect.
+  // Таким образом, пользователь может либо нажать кнопку "Войти",
+  // либо просто нажать Enter после ввода имени, и форма все равно сработает.
+  // onSubmit — это событие "Отправка формы" (когда нажали кнопку submit или Enter).
+  // e.preventDefault() внутри handleConnect предотвращает стандартное поведение формы — перезагрузку страницы.
+  // {handleConnect} — мы говорим: "Когда случится отправка, НЕ перезагружай страницу (как делают старые сайты), а запусти нашу функцию handleConnect".
+  // <h2>: Header 2. Заголовок второго уровня (жирный, крупный текст). Просто надпись.
+  // Поле ввода <input> (Связь с памятью):
+  // Это самая сложная концепция React, называется "Управляемый компонент" (Controlled Component).
+  // Идея в том, что значение поля ввода (input) "связывается" с состоянием React (переменная username).
+  // Когда пользователь вводит текст, срабатывает событие onChange.
+  // Мы ловим это событие и вызываем setUsername с новым значением e.target.value.
+  // Это обновляет состояние username в React.
+  // Поскольку состояние изменилось, React перерисовывает компонент App,
+  // и новое значение username снова "попадает" в поле ввода через атрибут value={username}.
+  // Таким образом, поле ввода всегда "отражает" текущее состояние username.
+  // Итог: Поле ввода и состояние username "связаны" друг с другом.
+  // Любое изменение в поле ввода обновляет состояние,
+  // а любое изменение состояния обновляет отображаемое значение в поле ввода.
+  // Это позволяет нам точно контролировать, что находится в поле ввода в любой момент времени.
+  // Кнопка <button type="submit">: Кнопка для отправки формы. При нажатии запускается событие onSubmit формы, вызывая handleConnect.
+if (!token) {
     return (
       <div className="lesson-page lesson-login" data-lk-theme="default">
         <div className="lesson-bg" aria-hidden="true" />

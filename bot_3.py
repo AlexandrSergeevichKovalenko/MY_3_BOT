@@ -2161,9 +2161,35 @@ async def get_original_sentences(user_id, context: CallbackContext):
             #print(f"🚀 Сгенерированные GPT предложения: {gpt_sentences}") # ✅ Логируем результат
             
         
+        def normalize_sentences(items):
+            normalized = []
+            seen = set()
+            for item in items:
+                if not item:
+                    continue
+                text = str(item).strip()
+                if not text:
+                    continue
+                for line in text.split("\n"):
+                    candidate = re.sub(r"^\s*\d+\.\s*", "", line).strip()
+                    if not candidate:
+                        continue
+                    if candidate in seen:
+                        continue
+                    seen.add(candidate)
+                    normalized.append(candidate)
+            return normalized
+
         # ✅ Проверяем финальный список предложений
-        final_sentences = rows + mistake_sentences + gpt_sentences
+        final_sentences = normalize_sentences(rows + mistake_sentences + gpt_sentences)
         print(f"✅ Финальный список предложений: {final_sentences}")
+
+        attempts = 0
+        while len(final_sentences) < 7 and attempts < 3:
+            needed = 7 - len(final_sentences)
+            extra_sentences = await generate_sentences(user_id, needed, context)
+            final_sentences = normalize_sentences(final_sentences + extra_sentences)
+            attempts += 1
         
         if not final_sentences:
             print("❌ Ошибка: Не удалось получить предложения!")

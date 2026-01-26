@@ -2,6 +2,7 @@
 import os
 import logging
 import asyncio
+import re
 #from openai import OpenAI
 from openai import AsyncOpenAI
 import psycopg2
@@ -620,4 +621,24 @@ async def run_check_translation(original_text: str, user_translation: str) -> st
     except Exception as exc:
         logging.warning(f"Не удалось удалить thread: {exc}")
 
-    return collected_text
+    score = None
+    correct_translation = None
+
+    if "Score:" in collected_text:
+        score_candidate = collected_text.split("Score:")[-1].split("/")[0].strip()
+        if score_candidate.isdigit():
+            score = score_candidate
+
+    match = re.search(r'Correct Translation:\s*(.+?)(?:\n|\Z)', collected_text)
+    if match:
+        correct_translation = match.group(1).strip()
+
+    result_text = (
+        f"🟢 Sentence\n"
+        f"✅ Score: {score or '—'}/100\n"
+        f"🔵 Original Sentence: {original_text}\n"
+        f"🟡 User Translation: {user_translation}\n"
+        f"🟣 Correct Translation: {correct_translation or '—'}\n"
+    )
+
+    return result_text
