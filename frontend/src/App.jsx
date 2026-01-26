@@ -142,16 +142,18 @@ function App() {
     const storageKey = `webappDrafts_${webappUser.id}`;
     const stored = localStorage.getItem(storageKey);
     let initial = sentences.map((item) => ({
-      id_for_mistake_table: item.id_for_mistake_table,
+      sentenceId: item.id_for_mistake_table,
       translation: '',
     }));
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        initial = sentences.map((item) => ({
-          id_for_mistake_table: item.id_for_mistake_table,
-          translation: parsed[item.id_for_mistake_table] || '',
-        }));
+        if (Array.isArray(parsed) && parsed.length === sentences.length) {
+          initial = parsed.map((entry, index) => ({
+            sentenceId: sentences[index].id_for_mistake_table,
+            translation: entry.translation || '',
+          }));
+        }
       } catch (error) {
         console.warn('Failed to parse saved drafts', error);
       }
@@ -164,11 +166,7 @@ function App() {
       return;
     }
     const storageKey = `webappDrafts_${webappUser.id}`;
-    const payload = translationDrafts.reduce((acc, draft) => {
-      acc[draft.id_for_mistake_table] = draft.translation;
-      return acc;
-    }, {});
-    localStorage.setItem(storageKey, JSON.stringify(payload));
+    localStorage.setItem(storageKey, JSON.stringify(translationDrafts));
   }, [translationDrafts, webappUser?.id]);
 
   const handleWebappSubmit = async (event) => {
@@ -226,17 +224,17 @@ function App() {
       return;
     }
     const drafts = sentences.map((item) => ({
-      id_for_mistake_table: item.id_for_mistake_table,
+      sentenceId: item.id_for_mistake_table,
       translation: '',
     }));
     setTranslationDrafts(drafts);
     setBulkReady(true);
   };
 
-  const handleDraftChange = (id, value) => {
+  const handleDraftChange = (index, value) => {
     setTranslationDrafts((prev) =>
-      prev.map((item) =>
-        item.id_for_mistake_table === id ? { ...item, translation: value } : item
+      prev.map((item, idx) =>
+        idx === index ? { ...item, translation: value } : item
       )
     );
   };
@@ -258,7 +256,10 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           initData,
-          translations: translationDrafts,
+          translations: translationDrafts.map((draft) => ({
+            id_for_mistake_table: draft.sentenceId,
+            translation: draft.translation,
+          })),
         }),
       });
       if (!response.ok) {
@@ -315,9 +316,7 @@ function App() {
                 <p className="webapp-muted">Пока нет предложений для перевода.</p>
               ) : (
                 sentences.map((item, index) => {
-                  const draft = translationDrafts.find(
-                    (entry) => entry.id_for_mistake_table === item.id_for_mistake_table
-                  );
+                  const draft = translationDrafts[index];
                   return (
                     <label key={item.id_for_mistake_table} className="webapp-translation-item">
                       <span>
@@ -326,7 +325,7 @@ function App() {
                       <textarea
                         rows={3}
                         value={draft?.translation || ''}
-                        onChange={(event) => handleDraftChange(item.id_for_mistake_table, event.target.value)}
+                        onChange={(event) => handleDraftChange(index, event.target.value)}
                         placeholder="Введите перевод..."
                       />
                     </label>
@@ -517,3 +516,4 @@ function App() {
 }
 
 export default App;
+

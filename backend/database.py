@@ -214,7 +214,6 @@ def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
                 for row in rows
             ]
 
-
 # --- Новые функции для ассистента по продажам ---
 
 async def get_client_by_identifier(identifier: str) -> dict | None:

@@ -509,9 +509,6 @@ async def simulate_typing(context, chat_id, duration=3):
 async def send_main_menu(update: Update, context: CallbackContext):
     """Принудительно обновляет главное меню с кнопками."""
     web_app_url = await asyncio.to_thread(get_webapp_url)
-
-    web_app_url = await asyncio.to_thread(get_public_web_url)
-
     keyboard = [
         ["📌 Выбрать тему"],  # ❗ Убедись, что текст здесь правильный
         ["🚀 Начать перевод", "✅ Завершить перевод"],
@@ -559,12 +556,10 @@ def get_ngrok_url():
 def get_public_web_url():
     url = os.getenv("WEB_APP_URL")
     if url:
-        cleaned_url = url.rstrip("/")
+        cleaned_url = url.rstrip("/")  # чтобы не было двойных //
         if cleaned_url.endswith("/webapp"):
             return cleaned_url[: -len("/webapp")]
         return cleaned_url
-
-
 
     # 2) Локально (по желанию): fallback
     ngrok_url = get_ngrok_url()
