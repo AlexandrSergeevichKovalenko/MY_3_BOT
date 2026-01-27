@@ -56,12 +56,12 @@
 
 
 import os
-import sys
 import hmac
 import hashlib
 import json
 import asyncio
 import requests
+import sys
 from uuid import uuid4
 from urllib.parse import parse_qsl
 from flask import Flask, request, jsonify, send_from_directory
@@ -72,6 +72,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
+
 from backend.openai_manager import run_check_translation
 from backend.database import (
     ensure_webapp_tables,
@@ -101,7 +102,6 @@ if not TELEGRAM_Deutsch_BOT_TOKEN:
 ensure_webapp_tables()
 
 # === Путь к собранному фронту (frontend/dist) ===
-BASE_DIR = Path(__file__).resolve().parent.parent   # поднимаемся из backend/ в корень репо
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 
 
