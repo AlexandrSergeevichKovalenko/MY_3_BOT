@@ -71,10 +71,12 @@ from pathlib import Path
 from backend.openai_manager import run_check_translation
 from backend.database import (
     ensure_webapp_tables,
+    get_pending_daily_sentences,
     get_webapp_translation_history,
     get_latest_daily_sentences,
     save_webapp_translation,
 )
+from bot_3 import check_user_translation_webapp
 
 load_dotenv()
 
@@ -172,7 +174,6 @@ def _parse_telegram_init_data(init_data: str) -> dict:
     }
 
 
-
 def _normalize_sentence_text(text: str) -> str:
     cleaned = text.strip()
     if not cleaned:
@@ -193,6 +194,7 @@ def _dedupe_sentences(items: list[dict]) -> list[dict]:
         seen.add(key)
         result.append({**item, "sentence": normalized})
     return result
+
 
 def _send_group_message(text: str) -> None:
     if not TELEGRAM_GROUP_CHAT_ID:
@@ -245,11 +247,12 @@ def process_webapp_message():
     original_text = payload.get("original_text")
     user_translation = payload.get("user_translation")
     session_id = payload.get("session_id")
+    translations = payload.get("translations") or []
 
     if not init_data:
         return jsonify({"error": "initData обязателен"}), 400
-    if not original_text or not user_translation:
-        return jsonify({"error": "original_text и user_translation обязательны"}), 400
+    if not translations and (not original_text or not user_translation):
+        return jsonify({"error": "translations или original_text и user_translation обязательны"}), 400
 
     if not _telegram_hash_is_valid(init_data):
         return jsonify({"error": "initData не прошёл проверку"}), 401
@@ -261,6 +264,13 @@ def process_webapp_message():
 
     if not user_id:
         return jsonify({"error": "user_id отсутствует в initData"}), 400
+
+    if translations:
+        try:
+            results = asyncio.run(check_user_translation_webapp(user_id, username, translations))
+        except Exception as exc:
+            return jsonify({"error": f"Ошибка обработки запроса: {exc}"}), 500
+        return jsonify({"ok": True, "results": results})
 
     try:
         result = asyncio.run(run_check_translation(original_text, user_translation))
@@ -321,10 +331,9 @@ def get_webapp_sentences():
     if not user_id:
         return jsonify({"error": "user_id отсутствует в initData"}), 400
 
-    sentences = get_latest_daily_sentences(user_id=user_id, limit=int(limit))
+    sentences = get_pending_daily_sentences(user_id=user_id, limit=int(limit))
     deduped = _dedupe_sentences(sentences)
     return jsonify({"ok": True, "items": deduped})
-
 
 
 @app.route("/api/webapp/submit-group", methods=["POST"])

@@ -268,13 +268,19 @@ body {
   font-size: 14px;
 }
 
-.webapp-result pre {
+.webapp-result-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.webapp-result-card {
   white-space: pre-wrap;
   background: #f2f5ff;
   border-radius: 16px;
   padding: 16px;
   font-size: 14px;
-  margin: 12px 0 0;
+  color: #3c332b;
 }
 
 .webapp-history {

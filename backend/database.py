@@ -213,6 +213,32 @@ def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
                 for row in rows
             ]
 
+
+def get_pending_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT ds.id_for_mistake_table, ds.sentence
+                FROM bt_3_daily_sentences ds
+                LEFT JOIN bt_3_translations tr
+                    ON tr.user_id = ds.user_id
+                    AND tr.sentence_id = ds.id
+                    AND tr.timestamp::date = CURRENT_DATE
+                WHERE ds.user_id = %s
+                  AND ds.date = CURRENT_DATE
+                  AND tr.id IS NULL
+                ORDER BY ds.id_for_mistake_table ASC
+                LIMIT %s;
+            """, (user_id, limit))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id_for_mistake_table": row[0],
+                    "sentence": row[1],
+                }
+                for row in rows
+            ]
+
 # --- Новые функции для ассистента по продажам ---
 
 async def get_client_by_identifier(identifier: str) -> dict | None:

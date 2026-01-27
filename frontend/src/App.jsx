@@ -22,12 +22,10 @@ function App() {
   const [initData, setInitData] = useState(telegramApp?.initData || '');
   const [sessionId, setSessionId] = useState(null);
   const [webappUser, setWebappUser] = useState(null);
-  const [resultText, setResultText] = useState('');
-  const [historyItems, setHistoryItems] = useState([]);
+  const [results, setResults] = useState([]);
   const [sentences, setSentences] = useState([]);
   const [webappError, setWebappError] = useState('');
   const [webappLoading, setWebappLoading] = useState(false);
-  const [bulkReady, setBulkReady] = useState(false);
   const [translationDrafts, setTranslationDrafts] = useState([]);
 
   // Состояние для хранения токена доступа. Изначально его нет.
@@ -95,26 +93,6 @@ function App() {
     bootstrap();
   }, [initData, isWebAppMode]);
 
-  const loadHistory = async () => {
-    if (!initData) {
-      return;
-    }
-    try {
-      const response = await fetch('/api/webapp/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData, limit: 10 }),
-      });
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      const data = await response.json();
-      setHistoryItems(data.items || []);
-    } catch (error) {
-      setWebappError(`Ошибка загрузки истории: ${error.message}`);
-    }
-  };
-
   const loadSentences = async () => {
     if (!initData) {
       return;
@@ -130,7 +108,6 @@ function App() {
       }
       const data = await response.json();
       setSentences(data.items || []);
-      setBulkReady(false);
     } catch (error) {
       setWebappError(`Ошибка загрузки предложений: ${error.message}`);
     }
@@ -172,7 +149,6 @@ function App() {
 
   useEffect(() => {
     if (isWebAppMode && initData) {
-      loadHistory();
       loadSentences();
     }
   }, [initData, isWebAppMode]);
@@ -201,7 +177,7 @@ function App() {
 
     setWebappLoading(true);
     setWebappError('');
-    setResultText('');
+    setResults([]);
 
     try {
       const response = await fetch('/api/message', {
@@ -210,6 +186,10 @@ function App() {
         body: JSON.stringify({
           initData,
           session_id: sessionId,
+          translations: translationDrafts.map((draft) => ({
+            id_for_mistake_table: draft.sentenceId,
+            translation: draft.translation,
+          })),
           original_text: numberedOriginal,
           user_translation: numberedTranslations,
         }),
@@ -218,25 +198,12 @@ function App() {
         throw new Error(await response.text());
       }
       const data = await response.json();
-      setResultText(data.result || '');
-      await loadHistory();
+      setResults(data.results || []);
     } catch (error) {
       setWebappError(`Ошибка проверки: ${error.message}`);
     } finally {
       setWebappLoading(false);
     }
-  };
-
-  const handleFillTranslations = () => {
-    if (sentences.length === 0) {
-      return;
-    }
-    const drafts = sentences.map((item) => ({
-      sentenceId: item.id_for_mistake_table,
-      translation: '',
-    }));
-    setTranslationDrafts(drafts);
-    setBulkReady(true);
   };
 
   const handleDraftChange = (index, value) => {
@@ -321,7 +288,7 @@ function App() {
                 </button>
               </div>
               {sentences.length === 0 ? (
-                <p className="webapp-muted">Пока нет предложений для перевода.</p>
+                <p className="webapp-muted">Все предложения текущей сессии переведены. Запросите новые.</p>
               ) : (
                 sentences.map((item, index) => {
                   const draft = translationDrafts[index];
@@ -349,64 +316,28 @@ function App() {
 
           {webappError && <div className="webapp-error">{webappError}</div>}
 
-          {resultText && (
+          {results.length > 0 && (
             <section className="webapp-result">
               <h3>Результат проверки</h3>
-              <pre>{resultText}</pre>
+              <div className="webapp-result-list">
+                {results.map((item, index) => (
+                  <div key={`${item.sentence_number ?? index}`} className="webapp-result-card">
+                    {item.error ? (
+                      <div className="webapp-error">{item.error}</div>
+                    ) : (
+                      <>
+                        <div><strong>Предложение:</strong> {item.sentence_number}</div>
+                        <div><strong>Оценка:</strong> {item.score}/100</div>
+                        <div><strong>Оригинал:</strong> {item.original_text}</div>
+                        <div><strong>Перевод:</strong> {item.user_translation}</div>
+                        <div><strong>Правильный перевод:</strong> {item.correct_translation}</div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
             </section>
           )}
-
-          <section className="webapp-sentences">
-            <div className="webapp-history-head">
-              <h3>Последние предложения</h3>
-              <div className="webapp-sentences-actions">
-                <button type="button" onClick={loadSentences} className="secondary-button">
-                  Обновить
-                </button>
-                <button type="button" onClick={handleFillTranslations} className="secondary-button">
-                  Заполнить переводы
-                </button>
-              </div>
-            </div>
-            {sentences.length === 0 ? (
-              <p className="webapp-muted">Пока нет предложений для перевода.</p>
-            ) : (
-              <ol>
-                {sentences.map((item) => (
-                  <li key={item.id_for_mistake_table}>{item.sentence}</li>
-                ))}
-              </ol>
-            )}
-            {bulkReady && (
-              <p className="webapp-muted">Черновик заполнен. Осталось дописать переводы.</p>
-            )}
-          </section>
-
-          <section className="webapp-history">
-            <div className="webapp-history-head">
-              <h3>Последние проверки</h3>
-              <button type="button" onClick={loadHistory} className="secondary-button">
-                Обновить
-              </button>
-            </div>
-            {historyItems.length === 0 ? (
-              <p className="webapp-muted">История пока пустая.</p>
-            ) : (
-              <ul>
-                {historyItems.map((item) => (
-                  <li key={item.id}>
-                    <div className="webapp-history-text">
-                      <strong>RU:</strong> {item.original_text}
-                    </div>
-                    <div className="webapp-history-text">
-                      <strong>DE:</strong> {item.user_translation}
-                    </div>
-                    <div className="webapp-history-result">{item.result}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
         </div>
       </div>
     );
