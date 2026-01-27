@@ -68,6 +68,9 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from livekit.api import AccessToken, VideoGrants
 from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
 from backend.openai_manager import run_check_translation
 from backend.database import (
     ensure_webapp_tables,
