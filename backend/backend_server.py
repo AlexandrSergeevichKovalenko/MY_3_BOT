@@ -61,7 +61,6 @@ import hashlib
 import json
 import asyncio
 import requests
-import sys
 from uuid import uuid4
 from urllib.parse import parse_qsl
 from flask import Flask, request, jsonify, send_from_directory
@@ -70,8 +69,6 @@ from dotenv import load_dotenv
 from livekit.api import AccessToken, VideoGrants
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.append(str(BASE_DIR))
 
 from backend.openai_manager import run_check_translation
 from backend.database import (
@@ -81,7 +78,7 @@ from backend.database import (
     get_latest_daily_sentences,
     save_webapp_translation,
 )
-from bot_3 import check_user_translation_webapp
+from backend.translation_workflow import check_user_translation_webapp
 
 load_dotenv()
 
