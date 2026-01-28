@@ -25,6 +25,55 @@ body {
   justify-content: center;
 }
 
+.lesson-room {
+  height: 100vh;
+  padding: 16px clamp(16px, 3vw, 36px);
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.lesson-room .lesson-shell {
+  height: 100%;
+  gap: 16px;
+  color: #1f1c17;
+}
+
+.lesson-room .lesson-header h1 {
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.lesson-room .lesson-header p,
+.lesson-room .lesson-copy p,
+.lesson-room .lesson-controls p,
+.lesson-room .lesson-hint,
+.lesson-room .lesson-meta {
+  color: #2f261c;
+}
+
+.lesson-room .lesson-main {
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.lesson-room .lesson-hero,
+.lesson-room .lesson-controls {
+  padding: 20px;
+}
+
+.lesson-room .lesson-illustration svg {
+  width: min(200px, 70%);
+}
+
+.lesson-room .lesson-controls {
+  margin-top: auto;
+}
+
+.lesson-room .lesson-control-bar .lk-control-bar {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 .lesson-page::before,
 .lesson-page::after {
   content: '';
