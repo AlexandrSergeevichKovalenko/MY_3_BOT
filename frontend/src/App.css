@@ -25,6 +25,55 @@ body {
   justify-content: center;
 }
 
+.lesson-room {
+  height: 100vh;
+  padding: 16px clamp(16px, 3vw, 36px);
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.lesson-room .lesson-shell {
+  height: 100%;
+  gap: 16px;
+  color: #1f1c17;
+}
+
+.lesson-room .lesson-header h1 {
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.lesson-room .lesson-header p,
+.lesson-room .lesson-copy p,
+.lesson-room .lesson-controls p,
+.lesson-room .lesson-hint,
+.lesson-room .lesson-meta {
+  color: #2f261c;
+}
+
+.lesson-room .lesson-main {
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.lesson-room .lesson-hero,
+.lesson-room .lesson-controls {
+  padding: 20px;
+}
+
+.lesson-room .lesson-illustration svg {
+  width: min(200px, 70%);
+}
+
+.lesson-room .lesson-controls {
+  margin-top: auto;
+}
+
+.lesson-room .lesson-control-bar .lk-control-bar {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 .lesson-page::before,
 .lesson-page::after {
   content: '';
@@ -196,6 +245,213 @@ body {
 .lesson-control-bar .lk-button.lk-button-danger {
   background: #ffe1de;
   color: #6f1c16;
+}
+
+.webapp-page {
+  min-height: 100vh;
+  padding: 32px clamp(16px, 4vw, 48px);
+  background: #f6f1ea;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.webapp-card {
+  width: min(960px, 100%);
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 24px 50px rgba(65, 52, 41, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.webapp-header h1 {
+  margin: 10px 0 6px;
+  font-family: 'Playfair Display', 'Times New Roman', serif;
+  font-size: clamp(26px, 3vw, 36px);
+}
+
+.webapp-header p {
+  margin: 0;
+  color: #3c332b;
+}
+
+.webapp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: #fff4e4;
+  font-size: 14px;
+}
+
+.webapp-form {
+  display: grid;
+  gap: 16px;
+}
+
+.webapp-field {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.webapp-field textarea {
+  resize: vertical;
+  border-radius: 14px;
+  border: 1px solid rgba(60, 51, 43, 0.18);
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  background: #fffdfa;
+}
+
+.webapp-error {
+  color: #7d1c16;
+  background: #ffe8e5;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.webapp-success {
+  color: #205b3a;
+  background: #e3f7ea;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.webapp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.webapp-result-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.webapp-result-card {
+  white-space: pre-wrap;
+  background: #f2f5ff;
+  border-radius: 16px;
+  padding: 16px;
+  font-size: 14px;
+  color: #3c332b;
+}
+
+.webapp-history {
+  display: grid;
+  gap: 12px;
+}
+
+.webapp-sentences {
+  display: grid;
+  gap: 12px;
+}
+
+.webapp-sentences ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  color: #3c332b;
+  font-size: 14px;
+}
+
+.webapp-sentences-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.webapp-translation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.webapp-translation-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff8ee;
+  border: 1px solid rgba(60, 51, 43, 0.1);
+  font-size: 14px;
+}
+
+.webapp-translation-item textarea {
+  resize: vertical;
+  border-radius: 12px;
+  border: 1px solid rgba(60, 51, 43, 0.18);
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  background: #fffdfa;
+}
+
+.webapp-sentences li {
+  background: #fff3f2;
+  border: 1px solid rgba(60, 51, 43, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.webapp-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.webapp-history ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.webapp-history li {
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: #fff9f0;
+  border: 1px solid rgba(60, 51, 43, 0.08);
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.webapp-history-result {
+  background: #eef7ff;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.webapp-muted {
+  margin: 0;
+  color: #6b5a4a;
+  font-size: 14px;
+}
+
+.secondary-button {
+  border: 1px solid rgba(60, 51, 43, 0.15);
+  background: #fff7ec;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.secondary-button:hover {
+  background: #ffefd9;
 }
 
 .lesson-hint {
