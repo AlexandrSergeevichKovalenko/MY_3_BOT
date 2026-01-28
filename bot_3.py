@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo, KeyboardButton
 from telegram.ext import CallbackQueryHandler
 import hashlib
 import re
@@ -508,11 +508,13 @@ async def simulate_typing(context, chat_id, duration=3):
 # Buttons in Telegram
 async def send_main_menu(update: Update, context: CallbackContext):
     """Принудительно обновляет главное меню с кнопками."""
+    web_app_url = await asyncio.to_thread(get_webapp_url)
     keyboard = [
         ["📌 Выбрать тему"],  # ❗ Убедись, что текст здесь правильный
         ["🚀 Начать перевод", "✅ Завершить перевод"],
         ["📜 Проверить перевод", "🟡 Посмотреть свою статистику"],
-        ["🎙 Начать урок", "👥 Групповой звонок"]
+        ["🎙 Начать урок", "👥 Групповой звонок"],
+        [KeyboardButton("🌐 Web App", web_app=WebAppInfo(url=web_app_url))]
     ]
     
     # создаем в словаре клю service_message_ids Список для хранения всех id Сообщений, Для того чтобы потом можно было их удалить после выполнения перевода
@@ -555,7 +557,10 @@ def get_public_web_url():
     # 1) Railway/production: берём стабильный URL
     url = os.getenv("WEB_APP_URL")
     if url:
-        return url.rstrip("/")  # чтобы не было двойных //
+        cleaned_url = url.rstrip("/")  # чтобы не было двойных //
+        if cleaned_url.endswith("/webapp"):
+            return cleaned_url[: -len("/webapp")]
+        return cleaned_url
 
     # 2) Локально (по желанию): fallback
     ngrok_url = get_ngrok_url()
@@ -563,6 +568,12 @@ def get_public_web_url():
         return ngrok_url.rstrip("/")
     
     return "http://localhost:8000"  # Локальный fallback (если нужно)
+
+def get_webapp_url():
+    base_url = get_public_web_url()
+    if base_url.endswith("/webapp"):
+        return base_url
+    return f"{base_url}/webapp"
 
 async def handle_button_click(update: Update, context: CallbackContext):
     """Обрабатывает нажатия на кнопки главного меню."""
@@ -1318,12 +1329,12 @@ async def recheck_score_only(original_text, user_translation):
     return "0" # fallback, если GPT не ответил
 
 
-async def check_translation(original_text, user_translation, update: Update, context: CallbackContext, sentence_number):
+async def check_translation(original_text, user_translation, update: Update | None, context: CallbackContext | None, sentence_number):
 
     task_name = f"check_translation"
     system_instruction_key = f"check_translation"
     assistant_id, _ = await get_or_create_openai_resources(system_instruction_key, task_name)
-            
+
     # ✅ Создаём новый thread каждый раз
     thread = await client.beta.threads.create()
     thread_id = thread.id
@@ -1336,9 +1347,14 @@ async def check_translation(original_text, user_translation, update: Update, con
     correct_translation = None
     
     # ✅ Показываем сообщение о начале проверки
-    message = await context.bot.send_message(chat_id=update.message.chat_id, text="⏳ Посмотрим на что ты способен...")
-    
-    await simulate_typing(context, update.message.chat_id, duration=3)
+    has_telegram = bool(update and context and getattr(update, "message", None))
+    user_id_label = update.message.from_user.id if has_telegram else "webapp"
+    sent_message = None
+    message = None
+
+    if has_telegram:
+        message = await context.bot.send_message(chat_id=update.message.chat_id, text="⏳ Посмотрим на что ты способен...")
+        await simulate_typing(context, update.message.chat_id, duration=3)
 
     user_message = f"""
 
@@ -1404,8 +1420,8 @@ async def check_translation(original_text, user_translation, update: Update, con
                 correct_translation = match.group(1).strip()
             
             # ✅ Логируем До обработки
-            print(f"🔎 RAW CATEGORIES BEFORE HANDLING in check_translation function (User {update.message.from_user.id}): {', '.join(categories)}")
-            print(f"🔎 RAW SUBCATEGORIES BEFORE HANDLING in check_translation function (User {update.message.from_user.id}): {', '.join(subcategories)}")
+            print(f"🔎 RAW CATEGORIES BEFORE HANDLING in check_translation function (User {user_id_label}): {', '.join(categories)}")
+            print(f"🔎 RAW SUBCATEGORIES BEFORE HANDLING in check_translation function (User {user_id_label}): {', '.join(subcategories)}")
             
             # my offer for category: i would reduce all unneccessary symbols not only ** except from words and commas (what do you think!?)
             categories = [re.sub(r"[^0-9a-zA-Z\s,+\-–]", "", cat).strip() for cat in categories if cat.strip()]
@@ -1417,8 +1433,8 @@ async def check_translation(original_text, user_translation, update: Update, con
             subcategories = [subcat.strip() for subcat in subcategories if subcat.strip()]
 
             # ✅ Логируем
-            print(f"🔎 RAW CATEGORIES AFTER HANDLING in check_translation function (User {update.message.from_user.id}): {', '.join(categories)}")
-            print(f"🔎 RAW SUBCATEGORIES AFRET HANDLING (User {update.message.from_user.id}): {', '.join(subcategories)}")
+            print(f"🔎 RAW CATEGORIES AFTER HANDLING in check_translation function (User {user_id_label}): {', '.join(categories)}")
+            print(f"🔎 RAW SUBCATEGORIES AFRET HANDLING (User {user_id_label}): {', '.join(subcategories)}")
 
             
             if not categories:
@@ -1487,43 +1503,46 @@ async def check_translation(original_text, user_translation, update: Update, con
         result_text += "\n✅ Перевод на высоком уровне."
 
     # ✅ Отправляем текст в Telegram с поддержкой HTML
-    sent_message = await context.bot.send_message(
-        chat_id=update.message.chat_id,
-        text=escape_html_with_bold(result_text),
-        parse_mode="HTML"
-    )
+    if has_telegram:
+        sent_message = await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text=escape_html_with_bold(result_text),
+            parse_mode="HTML"
+        )
 
-    message_id = sent_message.message_id
-    
-    # ✅ Сохраняем данные в context.user_data
-    if len(context.user_data) >= 10:
-        oldest_key = next(iter(context.user_data))
-        del context.user_data[oldest_key]  # Удаляем самые старые данные
+    if has_telegram and sent_message:
+        message_id = sent_message.message_id
 
-    context.user_data[f"translation_{message_id}"] = {
-        "original_text": original_text,
-        "user_translation": user_translation
-    }
+        # ✅ Сохраняем данные в context.user_data
+        if len(context.user_data) >= 10:
+            oldest_key = next(iter(context.user_data))
+            del context.user_data[oldest_key]  # Удаляем самые старые данные
 
-    # ✅ Удаляем сообщение с индикатором "Генерация ответа"
-    await message.delete()
+        context.user_data[f"translation_{message_id}"] = {
+            "original_text": original_text,
+            "user_translation": user_translation
+        }
 
-    # ✅ Добавляем инлайн-кнопку после отправки сообщения
-    keyboard = [[InlineKeyboardButton("❓ Explain me GPT", callback_data=f"explain:{message_id}")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+        # ✅ Удаляем сообщение с индикатором "Генерация ответа"
+        if message:
+            await message.delete()
 
-    # ✅ Задержка в 1,5 секунды для предотвращения блокировки
-    await asyncio.sleep(1.5)
+        # ✅ Добавляем инлайн-кнопку после отправки сообщения
+        keyboard = [[InlineKeyboardButton("❓ Explain me GPT", callback_data=f"explain:{message_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # ✅ Редактируем сообщение, добавляем кнопку
-    await sent_message.edit_text(
-        text=escape_html_with_bold(result_text),
-        reply_markup=reply_markup,
-        parse_mode="HTML"
-        )                        
+        # ✅ Задержка в 1,5 секунды для предотвращения блокировки
+        await asyncio.sleep(1.5)
 
-    # ✅ Логируем успешную проверку
-    logging.info(f"✅ Перевод проверен для пользователя {update.message.from_user.id}")
+        # ✅ Редактируем сообщение, добавляем кнопку
+        await sent_message.edit_text(
+            text=escape_html_with_bold(result_text),
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+            )                        
+
+        # ✅ Логируем успешную проверку
+        logging.info(f"✅ Перевод проверен для пользователя {update.message.from_user.id}")
 
     return result_text, categories, subcategories, score, correct_translation
 
@@ -2099,6 +2118,177 @@ async def check_user_translation(update: Update, context: CallbackContext, trans
     conn.close()
 
 
+async def check_user_translation_webapp(user_id: int, username: str | None, translations: list[dict]) -> list[dict]:
+    if not translations:
+        return []
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT unique_id, id_for_mistake_table, id, sentence, session_id
+            FROM bt_3_daily_sentences
+            WHERE date = CURRENT_DATE AND user_id = %s;
+        """, (user_id,))
+        allowed_rows = cursor.fetchall()
+        allowed_by_mistake_id = {
+            row[1]: {
+                "unique_id": row[0],
+                "sentence_id": row[2],
+                "sentence": row[3],
+                "session_id": row[4],
+            }
+            for row in allowed_rows
+        }
+
+        results = []
+
+        for entry in translations:
+            sentence_id_for_mistake = entry.get("id_for_mistake_table")
+            user_translation = (entry.get("translation") or "").strip()
+            if not sentence_id_for_mistake or not user_translation:
+                continue
+
+            if sentence_id_for_mistake not in allowed_by_mistake_id:
+                results.append({
+                    "sentence_number": None,
+                    "error": "Предложение не принадлежит пользователю или не найдено.",
+                })
+                continue
+
+            sentence_info = allowed_by_mistake_id[sentence_id_for_mistake]
+            sentence_number = sentence_info["unique_id"]
+            original_text = sentence_info["sentence"]
+            session_id = sentence_info["session_id"]
+            sentence_pk_id = sentence_info["sentence_id"]
+
+            cursor.execute("""
+                SELECT id FROM bt_3_translations
+                WHERE user_id = %s AND sentence_id = %s AND timestamp::date = CURRENT_DATE;
+            """, (user_id, sentence_pk_id))
+
+            existing_translation = cursor.fetchone()
+            if existing_translation:
+                results.append({
+                    "sentence_number": sentence_number,
+                    "error": "Вы уже переводили это предложение.",
+                })
+                continue
+
+            try:
+                feedback, categories, subcategories, score, correct_translation = await check_translation(
+                    original_text,
+                    user_translation,
+                    None,
+                    None,
+                    sentence_number,
+                )
+            except Exception as exc:
+                logging.error(f"⚠️ Ошибка при проверке перевода №{sentence_number}: {exc}", exc_info=True)
+                results.append({
+                    "sentence_number": sentence_number,
+                    "error": "Ошибка: не удалось проверить перевод.",
+                })
+                continue
+
+            score_value = int(score) if score and str(score).isdigit() else 50
+
+            cursor.execute("""
+                INSERT INTO bt_3_translations (user_id, id_for_mistake_table, session_id, username, sentence_id, user_translation, score, feedback)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+            """, (user_id, sentence_id_for_mistake, session_id, username, sentence_pk_id, user_translation, score_value, feedback))
+
+            conn.commit()
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM bt_3_detailed_mistakes
+                WHERE sentence_id = %s AND user_id = %s;
+            """, (sentence_id_for_mistake, user_id))
+
+            was_in_mistakes = cursor.fetchone()[0] > 0
+
+            if was_in_mistakes:
+                if score_value >= 85:
+                    cursor.execute("""
+                        SELECT attempt
+                        FROM bt_3_attempts
+                        WHERE id_for_mistake_table = %s AND user_id = %s;
+                    """, (sentence_id_for_mistake, user_id))
+
+                    result = cursor.fetchone()
+                    total_attempts = (result[0] or 0) + 1
+
+                    cursor.execute("""
+                        INSERT INTO bt_3_successful_translations (user_id, sentence_id, score, attempt, date)
+                        VALUES (%s, %s, %s, %s, NOW());
+                    """, (user_id, sentence_id_for_mistake, score_value, total_attempts))
+
+                    cursor.execute("""
+                        DELETE FROM bt_3_detailed_mistakes
+                        WHERE sentence_id = %s AND user_id = %s;
+                    """, (sentence_id_for_mistake, user_id))
+
+                    cursor.execute("""
+                        DELETE FROM bt_3_attempts
+                        WHERE id_for_mistake_table = %s AND user_id= %s;
+                    """, (sentence_id_for_mistake, user_id))
+
+                    conn.commit()
+                else:
+                    cursor.execute("""
+                        INSERT INTO bt_3_attempts (user_id, id_for_mistake_table, timestamp)
+                        VALUES (%s, %s, NOW())
+                        ON CONFLICT (user_id, id_for_mistake_table)
+                        DO UPDATE SET
+                            attempt = bt_3_attempts.attempt + 1,
+                            timestamp= NOW();
+                    """, (sentence_id_for_mistake, user_id))
+
+                    conn.commit()
+            else:
+                if score_value >= 80:
+                    cursor.execute("""
+                        INSERT INTO bt_3_successful_translations (user_id, sentence_id, score, attempt, date)
+                        VALUES(%s, %s, %s, %s, NOW());
+                    """, (user_id, sentence_id_for_mistake, score_value, 1))
+                    conn.commit()
+                else:
+                    cursor.execute("""
+                        INSERT INTO bt_3_attempts (user_id, id_for_mistake_table)
+                        VALUES (%s, %s)
+                        ON CONFLICT (user_id, id_for_mistake_table)
+                        DO UPDATE SET attempt = bt_3_attempts.attempt + 1;
+                    """, (user_id, sentence_id_for_mistake))
+                    conn.commit()
+
+                    await log_translation_mistake(
+                        user_id,
+                        original_text,
+                        user_translation,
+                        categories,
+                        subcategories,
+                        score_value,
+                        correct_translation,
+                    )
+
+            results.append({
+                "sentence_number": sentence_number,
+                "score": score_value,
+                "original_text": original_text,
+                "user_translation": user_translation,
+                "correct_translation": correct_translation,
+                "feedback": feedback,
+            })
+
+        results.sort(key=lambda item: item.get("sentence_number") or 0)
+        return results
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
 
 async def get_original_sentences(user_id, context: CallbackContext):
     conn = get_db_connection()
@@ -2151,9 +2341,35 @@ async def get_original_sentences(user_id, context: CallbackContext):
             #print(f"🚀 Сгенерированные GPT предложения: {gpt_sentences}") # ✅ Логируем результат
             
         
+        def normalize_sentences(items):
+            normalized = []
+            seen = set()
+            for item in items:
+                if not item:
+                    continue
+                text = str(item).strip()
+                if not text:
+                    continue
+                for line in text.split("\n"):
+                    candidate = re.sub(r"^\s*\d+\.\s*", "", line).strip()
+                    if not candidate:
+                        continue
+                    if candidate in seen:
+                        continue
+                    seen.add(candidate)
+                    normalized.append(candidate)
+            return normalized
+
         # ✅ Проверяем финальный список предложений
-        final_sentences = rows + mistake_sentences + gpt_sentences
+        final_sentences = normalize_sentences(rows + mistake_sentences + gpt_sentences)
         print(f"✅ Финальный список предложений: {final_sentences}")
+
+        attempts = 0
+        while len(final_sentences) < 7 and attempts < 3:
+            needed = 7 - len(final_sentences)
+            extra_sentences = await generate_sentences(user_id, needed, context)
+            final_sentences = normalize_sentences(final_sentences + extra_sentences)
+            attempts += 1
         
         if not final_sentences:
             print("❌ Ошибка: Не удалось получить предложения!")
