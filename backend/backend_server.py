@@ -60,6 +60,7 @@ import hmac
 import hashlib
 import json
 import asyncio
+import logging
 import requests
 from uuid import uuid4
 from urllib.parse import parse_qsl
@@ -84,6 +85,7 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+logging.basicConfig(level=logging.INFO)
 
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
@@ -211,6 +213,14 @@ def _send_group_message(text: str) -> None:
     )
     if response.status_code >= 400:
         raise RuntimeError(f"Telegram API error: {response.text}")
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    logging.exception("Unhandled exception: %s", error)
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Internal Server Error"}), 500
+    raise error
 
 
 @app.route("/api/telegram/validate", methods=["POST"])

@@ -232,6 +232,8 @@ async def check_user_translation_webapp(
 
         for entry in translations:
             sentence_id_for_mistake = entry.get("id_for_mistake_table")
+            if isinstance(sentence_id_for_mistake, str) and sentence_id_for_mistake.isdigit():
+                sentence_id_for_mistake = int(sentence_id_for_mistake)
             user_translation = (entry.get("translation") or "").strip()
             if not sentence_id_for_mistake or not user_translation:
                 continue
