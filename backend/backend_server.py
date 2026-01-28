@@ -82,6 +82,7 @@ from backend.database import (
 from backend.translation_workflow import (
     build_user_daily_summary,
     check_user_translation_webapp,
+    finish_translation_webapp,
 )
 
 load_dotenv()
@@ -403,6 +404,28 @@ def submit_webapp_group_message():
         return jsonify({"error": f"Ошибка отправки в группу: {exc}"}), 500
 
     return jsonify({"ok": True})
+
+
+@app.route("/api/webapp/finish", methods=["POST"])
+def finish_webapp_translation():
+    payload = request.get_json(silent=True) or {}
+    init_data = payload.get("initData")
+
+    if not init_data:
+        return jsonify({"error": "initData обязателен"}), 400
+
+    if not _telegram_hash_is_valid(init_data):
+        return jsonify({"error": "initData не прошёл проверку"}), 401
+
+    parsed = _parse_telegram_init_data(init_data)
+    user_data = parsed.get("user") or {}
+    user_id = user_data.get("id")
+
+    if not user_id:
+        return jsonify({"error": "user_id отсутствует в initData"}), 400
+
+    result = finish_translation_webapp(user_id)
+    return jsonify({"ok": True, **result})
 
 
 if __name__ == "__main__":

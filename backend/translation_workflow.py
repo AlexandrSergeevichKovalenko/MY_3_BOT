@@ -421,6 +421,92 @@ async def check_user_translation_webapp(
         conn.close()
 
 
+def finish_translation_webapp(user_id: int) -> dict[str, Any]:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            """
+            SELECT session_id
+            FROM bt_3_user_progress
+            WHERE user_id = %s AND completed = FALSE
+            ORDER BY start_time DESC
+            LIMIT 1;
+            """,
+            (user_id,),
+        )
+        session = cursor.fetchone()
+        if not session:
+            return {
+                "message": (
+                    "❌ У вас нет активных сессий! Используйте кнопки: "
+                    "'📌 Выбрать тему' -> '🚀 Начать перевод' чтобы начать."
+                ),
+                "status": "no_session",
+            }
+
+        session_id = session[0]
+
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM bt_3_daily_sentences
+            WHERE user_id = %s AND session_id = %s;
+            """,
+            (user_id, session_id),
+        )
+        total_sentences = cursor.fetchone()[0] or 0
+
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM bt_3_translations
+            WHERE user_id = %s AND session_id = %s;
+            """,
+            (user_id, session_id),
+        )
+        translated_count = cursor.fetchone()[0] or 0
+
+        cursor.execute(
+            """
+            UPDATE bt_3_user_progress
+            SET end_time = NOW(), completed = TRUE
+            WHERE user_id = %s AND session_id = %s AND completed = FALSE;
+            """,
+            (user_id, session_id),
+        )
+        conn.commit()
+
+        if translated_count == 0:
+            message = (
+                f"😔 Вы не перевели ни одного предложения из {total_sentences} в этой сессии.\n"
+                "Попробуйте начать новую сессию с помощью кнопок "
+                "'📌 Выбрать тему' -> '🚀 Начать перевод'."
+            )
+        elif translated_count < total_sentences:
+            message = (
+                f"⚠️ Вы перевели {translated_count} из {total_sentences} предложений.\n"
+                "Перевод завершён, но не все предложения переведены. "
+                "Это повлияет на ваш итоговый балл."
+            )
+        else:
+            message = (
+                "🎉 Вы успешно завершили перевод!\n"
+                f"Все {total_sentences} предложений этой сессии переведены! 🚀"
+            )
+
+        return {
+            "message": message,
+            "status": "completed",
+            "total_sentences": total_sentences,
+            "translated_count": translated_count,
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def build_user_daily_summary(user_id: int, username: str | None) -> str | None:
     with get_db_connection() as conn:
         with conn.cursor() as cursor:

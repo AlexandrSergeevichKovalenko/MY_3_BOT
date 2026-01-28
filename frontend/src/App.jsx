@@ -26,7 +26,8 @@ function App() {
   const [sentences, setSentences] = useState([]);
   const [webappError, setWebappError] = useState('');
   const [webappLoading, setWebappLoading] = useState(false);
-  const [translationDrafts, setTranslationDrafts] = useState([]);
+  const [translationDrafts, setTranslationDrafts] = useState({});
+  const [finishMessage, setFinishMessage] = useState('');
 
   // Состояние для хранения токена доступа. Изначально его нет.
   // Мы говорим React'у: "Создай ячейку памяти. Изначально положи туда null (пустоту)".
@@ -98,6 +99,7 @@ function App() {
       return;
     }
     try {
+      setFinishMessage('');
       const response = await fetch('/api/webapp/sentences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,6 +110,7 @@ function App() {
       }
       const data = await response.json();
       setSentences(data.items || []);
+      setResults([]);
     } catch (error) {
       setWebappError(`Ошибка загрузки предложений: ${error.message}`);
     }
@@ -117,35 +120,33 @@ function App() {
     if (!webappUser?.id || sentences.length === 0) {
       return;
     }
-    const storageKey = `webappDrafts_${webappUser.id}`;
+    const storageKey = `webappDrafts_${webappUser.id}_${sessionId || 'nosession'}`;
     const stored = localStorage.getItem(storageKey);
-    let initial = sentences.map((item) => ({
-      sentenceId: item.id_for_mistake_table,
-      translation: '',
-    }));
+    const sentenceIds = sentences.map((item) => String(item.id_for_mistake_table));
+    let initial = sentenceIds.reduce((acc, id) => ({ ...acc, [id]: '' }), {});
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length === sentences.length) {
-          initial = parsed.map((entry, index) => ({
-            sentenceId: sentences[index].id_for_mistake_table,
-            translation: entry.translation || '',
-          }));
+        if (parsed && typeof parsed === 'object') {
+          initial = sentenceIds.reduce((acc, id) => ({
+            ...acc,
+            [id]: parsed[id] || '',
+          }), {});
         }
       } catch (error) {
         console.warn('Failed to parse saved drafts', error);
       }
     }
     setTranslationDrafts(initial);
-  }, [sentences, webappUser?.id]);
+  }, [sentences, webappUser?.id, sessionId]);
 
   useEffect(() => {
-    if (!webappUser?.id || translationDrafts.length === 0) {
+    if (!webappUser?.id || Object.keys(translationDrafts).length === 0) {
       return;
     }
-    const storageKey = `webappDrafts_${webappUser.id}`;
+    const storageKey = `webappDrafts_${webappUser.id}_${sessionId || 'nosession'}`;
     localStorage.setItem(storageKey, JSON.stringify(translationDrafts));
-  }, [translationDrafts, webappUser?.id]);
+  }, [translationDrafts, webappUser?.id, sessionId]);
 
   useEffect(() => {
     if (isWebAppMode && initData) {
@@ -163,16 +164,19 @@ function App() {
       setWebappError('Нет предложений для перевода.');
       return;
     }
-    if (translationDrafts.every((item) => !item.translation.trim())) {
+    if (Object.values(translationDrafts).every((text) => !text.trim())) {
       setWebappError('Заполните хотя бы один перевод.');
       return;
     }
 
     const numberedOriginal = sentences
-      .map((item, index) => `${index + 1}. ${item.sentence}`)
+      .map((item) => `${item.unique_id ?? item.id_for_mistake_table}. ${item.sentence}`)
       .join('\n');
-    const numberedTranslations = translationDrafts
-      .map((item, index) => `${index + 1}. ${item.translation || ''}`)
+    const numberedTranslations = sentences
+      .map((item) => {
+        const translation = translationDrafts[String(item.id_for_mistake_table)] || '';
+        return `${item.unique_id ?? item.id_for_mistake_table}. ${translation}`;
+      })
       .join('\n');
 
     setWebappLoading(true);
@@ -186,9 +190,9 @@ function App() {
         body: JSON.stringify({
           initData,
           session_id: sessionId,
-          translations: translationDrafts.map((draft) => ({
-            id_for_mistake_table: draft.sentenceId,
-            translation: draft.translation,
+          translations: Object.entries(translationDrafts).map(([id, translation]) => ({
+            id_for_mistake_table: Number(id),
+            translation,
           })),
           original_text: numberedOriginal,
           user_translation: numberedTranslations,
@@ -199,6 +203,9 @@ function App() {
       }
       const data = await response.json();
       setResults(data.results || []);
+      const storageKey = `webappDrafts_${webappUser?.id || 'unknown'}_${sessionId || 'nosession'}`;
+      localStorage.removeItem(storageKey);
+      setTranslationDrafts({});
     } catch (error) {
       setWebappError(`Ошибка проверки: ${error.message}`);
     } finally {
@@ -206,12 +213,11 @@ function App() {
     }
   };
 
-  const handleDraftChange = (index, value) => {
-    setTranslationDrafts((prev) =>
-      prev.map((item, idx) =>
-        idx === index ? { ...item, translation: value } : item
-      )
-    );
+  const handleDraftChange = (sentenceId, value) => {
+    setTranslationDrafts((prev) => ({
+      ...prev,
+      [String(sentenceId)]: value,
+    }));
   };
 
   const handleSubmitToGroup = async () => {
@@ -219,7 +225,7 @@ function App() {
       setWebappError('initData не найдено. Откройте Web App внутри Telegram.');
       return;
     }
-    if (translationDrafts.every((item) => !item.translation.trim())) {
+    if (Object.values(translationDrafts).every((text) => !text.trim())) {
       setWebappError('Заполните хотя бы один перевод.');
       return;
     }
@@ -231,18 +237,62 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           initData,
-          translations: translationDrafts.map((draft) => ({
-            id_for_mistake_table: draft.sentenceId,
-            translation: draft.translation,
+          translations: Object.entries(translationDrafts).map(([id, translation]) => ({
+            id_for_mistake_table: Number(id),
+            translation,
           })),
         }),
       });
       if (!response.ok) {
-        throw new Error(await response.text());
+        let message = await response.text();
+        try {
+          const data = JSON.parse(message);
+          message = data.error || message;
+        } catch (error) {
+          // ignore parsing errors
+        }
+        throw new Error(message);
       }
       setWebappError('Отправлено в группу ✅');
     } catch (error) {
       setWebappError(`Ошибка отправки в группу: ${error.message}`);
+    } finally {
+      setWebappLoading(false);
+    }
+  };
+
+  const handleFinishTranslation = async () => {
+    if (!initData) {
+      setWebappError('initData не найдено. Откройте Web App внутри Telegram.');
+      return;
+    }
+    setWebappLoading(true);
+    setWebappError('');
+    setFinishMessage('');
+    try {
+      const response = await fetch('/api/webapp/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData }),
+      });
+      if (!response.ok) {
+        let message = await response.text();
+        try {
+          const data = JSON.parse(message);
+          message = data.error || message;
+        } catch (error) {
+          // ignore parsing errors
+        }
+        throw new Error(message);
+      }
+      const data = await response.json();
+      setFinishMessage(data.message || 'Перевод завершён.');
+      const storageKey = `webappDrafts_${webappUser?.id || 'unknown'}_${sessionId || 'nosession'}`;
+      localStorage.removeItem(storageKey);
+      setTranslationDrafts({});
+      await loadSentences();
+    } catch (error) {
+      setWebappError(`Ошибка завершения: ${error.message}`);
     } finally {
       setWebappLoading(false);
     }
@@ -283,24 +333,29 @@ function App() {
             <section className="webapp-translation-list">
               <div className="webapp-history-head">
                 <h3>Ваши переводы</h3>
-                <button type="button" onClick={handleSubmitToGroup} className="secondary-button">
-                  Отправить в группу
-                </button>
+                <div className="webapp-actions">
+                  <button type="button" onClick={handleSubmitToGroup} className="secondary-button">
+                    Отправить в группу
+                  </button>
+                  <button type="button" onClick={handleFinishTranslation} className="secondary-button">
+                    Завершить перевод
+                  </button>
+                </div>
               </div>
               {sentences.length === 0 ? (
                 <p className="webapp-muted">Все предложения текущей сессии переведены. Запросите новые.</p>
               ) : (
                 sentences.map((item, index) => {
-                  const draft = translationDrafts[index];
+                  const draft = translationDrafts[String(item.id_for_mistake_table)] || '';
                   return (
                     <label key={item.id_for_mistake_table} className="webapp-translation-item">
                       <span>
-                        {index + 1}. {item.sentence}
+                        {item.unique_id ?? index + 1}. {item.sentence}
                       </span>
                       <textarea
                         rows={3}
-                        value={draft?.translation || ''}
-                        onChange={(event) => handleDraftChange(index, event.target.value)}
+                        value={draft}
+                        onChange={(event) => handleDraftChange(item.id_for_mistake_table, event.target.value)}
                         placeholder="Введите перевод..."
                       />
                     </label>
@@ -315,6 +370,7 @@ function App() {
           </form>
 
           {webappError && <div className="webapp-error">{webappError}</div>}
+          {finishMessage && <div className="webapp-success">{finishMessage}</div>}
 
           {results.length > 0 && (
             <section className="webapp-result">

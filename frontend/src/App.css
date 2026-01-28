@@ -268,6 +268,20 @@ body {
   font-size: 14px;
 }
 
+.webapp-success {
+  color: #205b3a;
+  background: #e3f7ea;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.webapp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .webapp-result-list {
   display: grid;
   gap: 12px;

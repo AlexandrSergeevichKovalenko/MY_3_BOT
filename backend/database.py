@@ -198,10 +198,10 @@ def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
 
             latest_date = latest[0]
             cursor.execute("""
-                SELECT id_for_mistake_table, sentence
+                SELECT id_for_mistake_table, sentence, unique_id
                 FROM bt_3_daily_sentences
                 WHERE user_id = %s AND date = %s
-                ORDER BY id_for_mistake_table ASC
+                ORDER BY unique_id ASC
                 LIMIT %s;
             """, (user_id, latest_date, limit))
             rows = cursor.fetchall()
@@ -209,6 +209,7 @@ def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
                 {
                     "id_for_mistake_table": row[0],
                     "sentence": row[1],
+                    "unique_id": row[2],
                 }
                 for row in rows
             ]
@@ -218,7 +219,7 @@ def get_pending_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
     with get_db_connection_context() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT ds.id_for_mistake_table, ds.sentence
+                SELECT ds.id_for_mistake_table, ds.sentence, ds.unique_id
                 FROM bt_3_daily_sentences ds
                 LEFT JOIN bt_3_translations tr
                     ON tr.user_id = ds.user_id
@@ -227,7 +228,7 @@ def get_pending_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
                 WHERE ds.user_id = %s
                   AND ds.date = CURRENT_DATE
                   AND tr.id IS NULL
-                ORDER BY ds.id_for_mistake_table ASC
+                ORDER BY ds.unique_id ASC
                 LIMIT %s;
             """, (user_id, limit))
             rows = cursor.fetchall()
@@ -235,6 +236,7 @@ def get_pending_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
                 {
                     "id_for_mistake_table": row[0],
                     "sentence": row[1],
+                    "unique_id": row[2],
                 }
                 for row in rows
             ]
