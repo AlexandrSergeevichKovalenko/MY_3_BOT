@@ -1,6 +1,8 @@
 # openai_manager.py
 import os
 import logging
+import asyncio
+import re
 #from openai import OpenAI
 from openai import AsyncOpenAI
 import psycopg2
@@ -575,3 +577,68 @@ async def get_or_create_openai_resources(system_instruction: str, task_name: str
     except Exception as e:
         logging.error(f"❌ Ошибка при создании assistant для задачи '{task_name}': {e}", exc_info=True)
         raise # Пробрасываем ошибку
+
+
+async def run_check_translation(original_text: str, user_translation: str) -> str:
+    task_name = "check_translation"
+    system_instruction_key = "check_translation"
+    assistant_id, _ = await get_or_create_openai_resources(system_instruction_key, task_name)
+
+    thread = await client.beta.threads.create()
+    thread_id = thread.id
+
+    user_message = (
+        f'**Original sentence (Russian):** "{original_text}"\n'
+        f'**User\'s translation (German):** "{user_translation}"'
+    )
+
+    await client.beta.threads.messages.create(
+        thread_id=thread_id,
+        role="user",
+        content=user_message,
+    )
+
+    run = await client.beta.threads.runs.create(
+        thread_id=thread_id,
+        assistant_id=assistant_id,
+    )
+
+    while True:
+        run_status = await client.beta.threads.runs.retrieve(
+            thread_id=thread_id,
+            run_id=run.id,
+        )
+        if run_status.status == "completed":
+            break
+        await asyncio.sleep(2)
+
+    messages = await client.beta.threads.messages.list(thread_id=thread_id)
+    last_message = messages.data[0]
+    collected_text = last_message.content[0].text.value
+
+    try:
+        await client.beta.threads.delete(thread_id=thread_id)
+    except Exception as exc:
+        logging.warning(f"Не удалось удалить thread: {exc}")
+
+    score = None
+    correct_translation = None
+
+    if "Score:" in collected_text:
+        score_candidate = collected_text.split("Score:")[-1].split("/")[0].strip()
+        if score_candidate.isdigit():
+            score = score_candidate
+
+    match = re.search(r'Correct Translation:\s*(.+?)(?:\n|\Z)', collected_text)
+    if match:
+        correct_translation = match.group(1).strip()
+
+    result_text = (
+        f"🟢 Sentence\n"
+        f"✅ Score: {score or '—'}/100\n"
+        f"🔵 Original Sentence: {original_text}\n"
+        f"🟡 User Translation: {user_translation}\n"
+        f"🟣 Correct Translation: {correct_translation or '—'}\n"
+    )
+
+    return result_text
