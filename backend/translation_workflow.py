@@ -419,3 +419,56 @@ async def check_user_translation_webapp(
     finally:
         cursor.close()
         conn.close()
+
+
+def build_user_daily_summary(user_id: int, username: str | None) -> str | None:
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(DISTINCT ds.id) AS total_sentences,
+                    COUNT(DISTINCT t.id) AS translated,
+                    (COUNT(DISTINCT ds.id) - COUNT(DISTINCT t.id)) AS missed,
+                    COALESCE(p.avg_time, 0) AS avg_time_minutes,
+                    COALESCE(p.total_time, 0) AS total_time_minutes,
+                    COALESCE(AVG(t.score), 0) AS avg_score,
+                    COALESCE(AVG(t.score), 0)
+                        - (COALESCE(p.avg_time, 0) * 1)
+                        - ((COUNT(DISTINCT ds.id) - COUNT(DISTINCT t.id)) * 20) AS final_score
+                FROM bt_3_daily_sentences ds
+                LEFT JOIN bt_3_translations t
+                    ON ds.user_id = t.user_id
+                    AND ds.id = t.sentence_id
+                LEFT JOIN (
+                    SELECT user_id,
+                        AVG(EXTRACT(EPOCH FROM (end_time - start_time))/60) AS avg_time,
+                        SUM(EXTRACT(EPOCH FROM (end_time - start_time))/60) AS total_time
+                    FROM bt_3_user_progress
+                    WHERE completed = TRUE
+                        AND start_time::date = CURRENT_DATE
+                    GROUP BY user_id
+                ) p ON ds.user_id = p.user_id
+                WHERE ds.date = CURRENT_DATE AND ds.user_id = %s
+                GROUP BY ds.user_id, p.avg_time, p.total_time;
+                """,
+                (user_id,),
+            )
+            row = cursor.fetchone()
+
+    if not row:
+        return None
+
+    total_sentences, translated, missed, avg_minutes, total_minutes, avg_score, final_score = row
+    display_name = username or f"user_{user_id}"
+
+    return (
+        f"📊 Итоги пользователя {display_name}:\n"
+        f"📜 Всего предложений: {total_sentences}\n"
+        f"✅ Переведено: {translated}\n"
+        f"🚨 Не переведено: {missed}\n"
+        f"⏱ Время среднее: {avg_minutes:.1f} мин\n"
+        f"⏱ Время общее: {total_minutes:.1f} мин\n"
+        f"🎯 Средняя оценка: {avg_score:.1f}/100\n"
+        f"🏆 Итоговый балл: {final_score:.1f}"
+    )

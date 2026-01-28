@@ -79,7 +79,10 @@ from backend.database import (
     get_latest_daily_sentences,
     save_webapp_translation,
 )
-from backend.translation_workflow import check_user_translation_webapp
+from backend.translation_workflow import (
+    build_user_daily_summary,
+    check_user_translation_webapp,
+)
 
 load_dotenv()
 
@@ -388,6 +391,11 @@ def submit_webapp_group_message():
 
     if len(lines) == 1:
         return jsonify({"error": "Нет заполненных переводов"}), 400
+
+    summary = build_user_daily_summary(user_id=user_id, username=username)
+    if summary:
+        lines.append("")
+        lines.append(summary)
 
     try:
         _send_group_message("\n".join(lines))
