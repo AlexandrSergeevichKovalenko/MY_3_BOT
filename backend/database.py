@@ -96,6 +96,197 @@ def init_db(): #
 
     print("✅ Инициализация базы данных завершена.")
 
+
+def ensure_webapp_tables() -> None:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bt_3_webapp_checks (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    username TEXT,
+                    session_id TEXT,
+                    original_text TEXT NOT NULL,
+                    user_translation TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cursor.execute("CREATE SEQUENCE IF NOT EXISTS bt_3_webapp_checks_id_seq;")
+            cursor.execute("""
+                SELECT setval(
+                    'bt_3_webapp_checks_id_seq',
+                    COALESCE((SELECT MAX(id) FROM bt_3_webapp_checks), 1),
+                    true
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bt_3_webapp_dictionary_queries (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    word_ru TEXT NOT NULL,
+                    translation_de TEXT,
+                    response_json JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
+
+def save_webapp_translation(
+    user_id: int,
+    username: str | None,
+    session_id: str | None,
+    original_text: str,
+    user_translation: str,
+    result: str,
+) -> None:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO bt_3_webapp_checks (
+                    user_id,
+                    username,
+                    session_id,
+                    original_text,
+                    user_translation,
+                    result
+                )
+                VALUES (%s, %s, %s, %s, %s, %s);
+            """, (
+                user_id,
+                username,
+                session_id,
+                original_text,
+                user_translation,
+                result,
+            ))
+
+
+def get_webapp_translation_history(user_id: int, limit: int = 20) -> list[dict]:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    id,
+                    session_id,
+                    original_text,
+                    user_translation,
+                    result,
+                    created_at
+                FROM bt_3_webapp_checks
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s;
+            """, (user_id, limit))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "session_id": row[1],
+                    "original_text": row[2],
+                    "user_translation": row[3],
+                    "result": row[4],
+                    "created_at": row[5].isoformat() if row[5] else None,
+                }
+                for row in rows
+            ]
+
+
+def save_webapp_dictionary_query(
+    user_id: int,
+    word_ru: str,
+    translation_de: str | None,
+    response_json: dict,
+) -> None:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO bt_3_webapp_dictionary_queries (
+                    user_id,
+                    word_ru,
+                    translation_de,
+                    response_json
+                )
+                VALUES (%s, %s, %s, %s);
+            """, (
+                user_id,
+                word_ru,
+                translation_de,
+                json.dumps(response_json, ensure_ascii=False),
+            ))
+
+
+def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT date
+                FROM bt_3_daily_sentences
+                WHERE user_id = %s
+                ORDER BY date DESC
+                LIMIT 1;
+            """, (user_id,))
+            latest = cursor.fetchone()
+            if not latest:
+                return []
+
+            latest_date = latest[0]
+            cursor.execute("""
+                SELECT id_for_mistake_table, sentence, unique_id
+                FROM bt_3_daily_sentences
+                WHERE user_id = %s AND date = %s
+                ORDER BY unique_id ASC
+                LIMIT %s;
+            """, (user_id, latest_date, limit))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id_for_mistake_table": row[0],
+                    "sentence": row[1],
+                    "unique_id": row[2],
+                }
+                for row in rows
+            ]
+
+
+def get_pending_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT date
+                FROM bt_3_daily_sentences
+                WHERE user_id = %s
+                ORDER BY date DESC
+                LIMIT 1;
+            """, (user_id,))
+            latest = cursor.fetchone()
+            if not latest:
+                return []
+
+            latest_date = latest[0]
+            cursor.execute("""
+                SELECT ds.id_for_mistake_table, ds.sentence, ds.unique_id
+                FROM bt_3_daily_sentences ds
+                LEFT JOIN bt_3_translations tr
+                    ON tr.user_id = ds.user_id
+                    AND tr.sentence_id = ds.id
+                    AND tr.timestamp::date = %s
+                WHERE ds.user_id = %s
+                  AND ds.date = %s
+                  AND tr.id IS NULL
+                ORDER BY ds.unique_id ASC
+                LIMIT %s;
+            """, (latest_date, user_id, latest_date, limit))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id_for_mistake_table": row[0],
+                    "sentence": row[1],
+                    "unique_id": row[2],
+                }
+                for row in rows
+            ]
+
 # --- Новые функции для ассистента по продажам ---
 
 async def get_client_by_identifier(identifier: str) -> dict | None:
