@@ -44,5 +44,4 @@ ENV PORT=8080
 
 # 4) Запускаем Flask НЕ dev-сервером, а gunicorn (прод вариант)
 # ВАЖНО: чтобы это работало, в requirements.txt должен быть gunicorn
-CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:${PORT} backend.backend_server:app"]
-
+CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:${PORT} --timeout 300 --graceful-timeout 30 backend.backend_server:app"]
