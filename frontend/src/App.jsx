@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   LiveKitRoom,
   ControlBar,
@@ -12,6 +12,27 @@ import './App.css';
 const livekitUrl = "wss://implemrntingvoicetobot-vhsnc86g.livekit.cloud";
 
 function App() {
+  const telegramApp = useMemo(() => window.Telegram?.WebApp, []);
+  const isWebAppMode = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const isWebappPath = window.location.pathname === '/webapp';
+    return Boolean(telegramApp?.initData) || params.get('mode') === 'webapp' || isWebappPath;
+  }, [telegramApp]);
+
+  const [initData, setInitData] = useState(telegramApp?.initData || '');
+  const [sessionId, setSessionId] = useState(null);
+  const [webappUser, setWebappUser] = useState(null);
+  const [results, setResults] = useState([]);
+  const [sentences, setSentences] = useState([]);
+  const [webappError, setWebappError] = useState('');
+  const [webappLoading, setWebappLoading] = useState(false);
+  const [translationDrafts, setTranslationDrafts] = useState({});
+  const [finishMessage, setFinishMessage] = useState('');
+  const [dictionaryWord, setDictionaryWord] = useState('');
+  const [dictionaryResult, setDictionaryResult] = useState(null);
+  const [dictionaryError, setDictionaryError] = useState('');
+  const [dictionaryLoading, setDictionaryLoading] = useState(false);
+
   // Состояние для хранения токена доступа. Изначально его нет.
   // Мы говорим React'у: "Создай ячейку памяти. Изначально положи туда null (пустоту)".
   // Когда мы захотим обновить эту ячейку, мы будем использовать функцию setToken.
@@ -75,6 +96,447 @@ function App() {
       alert(error.message);
     }
   };
+
+  useEffect(() => {
+    if (!isWebAppMode || !initData) {
+      return;
+    }
+
+    const bootstrap = async () => {
+      try {
+        setWebappError('');
+        const response = await fetch('/api/webapp/bootstrap', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData }),
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const data = await response.json();
+        setSessionId(data.session_id);
+        setWebappUser(data.user);
+      } catch (error) {
+        setWebappError(`Ошибка инициализации: ${error.message}`);
+      }
+    };
+
+    bootstrap();
+  }, [initData, isWebAppMode]);
+
+  const loadSentences = async () => {
+    if (!initData) {
+      return;
+    }
+    try {
+      setFinishMessage('');
+      const response = await fetch('/api/webapp/sentences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, limit: 7 }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data = await response.json();
+      setSentences(data.items || []);
+      setResults([]);
+    } catch (error) {
+      setWebappError(`Ошибка загрузки предложений: ${error.message}`);
+    }
+  };
+
+  useEffect(() => {
+    if (!webappUser?.id || sentences.length === 0) {
+      return;
+    }
+    const storageKey = `webappDrafts_${webappUser.id}_${sessionId || 'nosession'}`;
+    const stored = localStorage.getItem(storageKey);
+    const sentenceIds = sentences.map((item) => String(item.id_for_mistake_table));
+    let initial = sentenceIds.reduce((acc, id) => ({ ...acc, [id]: '' }), {});
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          initial = sentenceIds.reduce((acc, id) => ({
+            ...acc,
+            [id]: parsed[id] || '',
+          }), {});
+        }
+      } catch (error) {
+        console.warn('Failed to parse saved drafts', error);
+      }
+    }
+    setTranslationDrafts(initial);
+  }, [sentences, webappUser?.id, sessionId]);
+
+  useEffect(() => {
+    if (!webappUser?.id || Object.keys(translationDrafts).length === 0) {
+      return;
+    }
+    const storageKey = `webappDrafts_${webappUser.id}_${sessionId || 'nosession'}`;
+    localStorage.setItem(storageKey, JSON.stringify(translationDrafts));
+  }, [translationDrafts, webappUser?.id, sessionId]);
+
+  useEffect(() => {
+    if (isWebAppMode && initData) {
+      loadSentences();
+    }
+  }, [initData, isWebAppMode]);
+
+  const handleWebappSubmit = async (event) => {
+    event.preventDefault();
+    if (!initData) {
+      setWebappError('initData не найдено. Откройте Web App внутри Telegram.');
+      return;
+    }
+    if (sentences.length === 0) {
+      setWebappError('Нет предложений для перевода.');
+      return;
+    }
+    if (Object.values(translationDrafts).every((text) => !text.trim())) {
+      setWebappError('Заполните хотя бы один перевод.');
+      return;
+    }
+
+    const numberedOriginal = sentences
+      .map((item) => `${item.unique_id ?? item.id_for_mistake_table}. ${item.sentence}`)
+      .join('\n');
+    const numberedTranslations = sentences
+      .map((item) => {
+        const translation = translationDrafts[String(item.id_for_mistake_table)] || '';
+        return `${item.unique_id ?? item.id_for_mistake_table}. ${translation}`;
+      })
+      .join('\n');
+
+    setWebappLoading(true);
+    setWebappError('');
+    setResults([]);
+
+    try {
+      const response = await fetch('/api/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          session_id: sessionId,
+          translations: Object.entries(translationDrafts).map(([id, translation]) => ({
+            id_for_mistake_table: Number(id),
+            translation,
+          })),
+          original_text: numberedOriginal,
+          user_translation: numberedTranslations,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data = await response.json();
+      setResults(data.results || []);
+      const storageKey = `webappDrafts_${webappUser?.id || 'unknown'}_${sessionId || 'nosession'}`;
+      localStorage.removeItem(storageKey);
+      setTranslationDrafts({});
+    } catch (error) {
+      setWebappError(`Ошибка проверки: ${error.message}`);
+    } finally {
+      setWebappLoading(false);
+    }
+  };
+
+  const handleDraftChange = (sentenceId, value) => {
+    setTranslationDrafts((prev) => ({
+      ...prev,
+      [String(sentenceId)]: value,
+    }));
+  };
+
+  const handleSubmitToGroup = async () => {
+    if (!initData) {
+      setWebappError('initData не найдено. Откройте Web App внутри Telegram.');
+      return;
+    }
+    if (Object.values(translationDrafts).every((text) => !text.trim())) {
+      setWebappError('Заполните хотя бы один перевод.');
+      return;
+    }
+    setWebappLoading(true);
+    setWebappError('');
+    try {
+      const response = await fetch('/api/webapp/submit-group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          translations: Object.entries(translationDrafts).map(([id, translation]) => ({
+            id_for_mistake_table: Number(id),
+            translation,
+          })),
+        }),
+      });
+      if (!response.ok) {
+        let message = await response.text();
+        try {
+          const data = JSON.parse(message);
+          message = data.error || message;
+        } catch (error) {
+          // ignore parsing errors
+        }
+        throw new Error(message);
+      }
+      setWebappError('Отправлено в группу ✅');
+    } catch (error) {
+      setWebappError(`Ошибка отправки в группу: ${error.message}`);
+    } finally {
+      setWebappLoading(false);
+    }
+  };
+
+  const handleFinishTranslation = async () => {
+    if (!initData) {
+      setWebappError('initData не найдено. Откройте Web App внутри Telegram.');
+      return;
+    }
+    setWebappLoading(true);
+    setWebappError('');
+    setFinishMessage('');
+    try {
+      const response = await fetch('/api/webapp/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData }),
+      });
+      if (!response.ok) {
+        let message = await response.text();
+        try {
+          const data = JSON.parse(message);
+          message = data.error || message;
+        } catch (error) {
+          // ignore parsing errors
+        }
+        throw new Error(message);
+      }
+      const data = await response.json();
+      setFinishMessage(data.message || 'Перевод завершён.');
+      const storageKey = `webappDrafts_${webappUser?.id || 'unknown'}_${sessionId || 'nosession'}`;
+      localStorage.removeItem(storageKey);
+      setTranslationDrafts({});
+      await loadSentences();
+    } catch (error) {
+      setWebappError(`Ошибка завершения: ${error.message}`);
+    } finally {
+      setWebappLoading(false);
+    }
+  };
+
+  const handleDictionaryLookup = async (event) => {
+    event.preventDefault();
+    if (!initData) {
+      setDictionaryError('initData не найдено. Откройте Web App внутри Telegram.');
+      return;
+    }
+    if (!dictionaryWord.trim()) {
+      setDictionaryError('Введите слово или фразу для словаря.');
+      return;
+    }
+    setDictionaryLoading(true);
+    setDictionaryError('');
+    setDictionaryResult(null);
+    try {
+      const response = await fetch('/api/webapp/dictionary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, word: dictionaryWord.trim() }),
+      });
+      if (!response.ok) {
+        let message = await response.text();
+        try {
+          const data = JSON.parse(message);
+          message = data.error || message;
+        } catch (error) {
+          // ignore parsing errors
+        }
+        throw new Error(message);
+      }
+      const data = await response.json();
+      setDictionaryResult(data.item || null);
+    } catch (error) {
+      setDictionaryError(`Ошибка словаря: ${error.message}`);
+    } finally {
+      setDictionaryLoading(false);
+    }
+  };
+
+  if (isWebAppMode) {
+    return (
+      <div className="webapp-page">
+        <div className="webapp-card">
+          <header className="webapp-header">
+            <span className="pill">Telegram Web App</span>
+            <h1>Проверка переводов</h1>
+            <p>Введите оригинальное предложение и свой перевод, чтобы получить оценку.</p>
+          </header>
+
+          <section className="webapp-meta">
+            <div>
+              <strong>Пользователь:</strong> {webappUser?.first_name || 'Гость'}
+            </div>
+            <div>
+              <strong>Session ID:</strong> {sessionId || '—'}
+            </div>
+          </section>
+
+          {!telegramApp?.initData && (
+            <label className="webapp-field">
+              <span>initData (для локального теста)</span>
+              <textarea
+                rows={3}
+                value={initData}
+                onChange={(event) => setInitData(event.target.value)}
+                placeholder="Вставьте initData из Telegram"
+              />
+            </label>
+          )}
+
+          <form className="webapp-form" onSubmit={handleWebappSubmit}>
+            <section className="webapp-translation-list">
+              <div className="webapp-history-head">
+                <h3>Ваши переводы</h3>
+                <div className="webapp-actions">
+                  <button type="button" onClick={handleSubmitToGroup} className="secondary-button">
+                    Отправить в группу
+                  </button>
+                  <button type="button" onClick={handleFinishTranslation} className="secondary-button">
+                    Завершить перевод
+                  </button>
+                </div>
+              </div>
+              {sentences.length === 0 ? (
+                <p className="webapp-muted">Все предложения текущей сессии переведены. Запросите новые.</p>
+              ) : (
+                sentences.map((item, index) => {
+                  const draft = translationDrafts[String(item.id_for_mistake_table)] || '';
+                  return (
+                    <label key={item.id_for_mistake_table} className="webapp-translation-item">
+                      <span>
+                        {item.unique_id ?? index + 1}. {item.sentence}
+                      </span>
+                      <textarea
+                        rows={3}
+                        value={draft}
+                        onChange={(event) => handleDraftChange(item.id_for_mistake_table, event.target.value)}
+                        placeholder="Введите перевод..."
+                      />
+                    </label>
+                  );
+                })
+              )}
+            </section>
+
+            <button className="primary-button" type="submit" disabled={webappLoading}>
+              {webappLoading ? 'Проверяем...' : 'Проверить перевод'}
+            </button>
+          </form>
+
+          {webappError && <div className="webapp-error">{webappError}</div>}
+          {finishMessage && <div className="webapp-success">{finishMessage}</div>}
+
+          {results.length > 0 && (
+            <section className="webapp-result">
+              <h3>Результат проверки</h3>
+              <div className="webapp-result-list">
+                {results.map((item, index) => (
+                  <div key={`${item.sentence_number ?? index}`} className="webapp-result-card">
+                    {item.error ? (
+                      <div className="webapp-error">{item.error}</div>
+                    ) : (
+                      <>
+                        <div><strong>Предложение:</strong> {item.sentence_number}</div>
+                        <div><strong>Оценка:</strong> {item.score}/100</div>
+                        <div><strong>Оригинал:</strong> {item.original_text}</div>
+                        <div><strong>Перевод:</strong> {item.user_translation}</div>
+                        <div><strong>Правильный перевод:</strong> {item.correct_translation}</div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="webapp-dictionary">
+            <h3>Словарь</h3>
+            <form className="webapp-dictionary-form" onSubmit={handleDictionaryLookup}>
+              <label className="webapp-field">
+                <span>Слово или фраза (русский)</span>
+                <input
+                  type="text"
+                  value={dictionaryWord}
+                  onChange={(event) => setDictionaryWord(event.target.value)}
+                  placeholder="Например: отказаться, уважение, несмотря на"
+                />
+              </label>
+              <button className="secondary-button" type="submit" disabled={dictionaryLoading}>
+                {dictionaryLoading ? 'Ищем...' : 'Перевести'}
+              </button>
+            </form>
+
+            {dictionaryError && <div className="webapp-error">{dictionaryError}</div>}
+
+            {dictionaryResult && (
+              <div className="webapp-dictionary-result">
+                <div className="dictionary-row">
+                  <strong>Перевод:</strong> {dictionaryResult.translation_de || '—'}
+                </div>
+                <div className="dictionary-row">
+                  <strong>Часть речи:</strong> {dictionaryResult.part_of_speech || '—'}
+                </div>
+                {dictionaryResult.article && (
+                  <div className="dictionary-row">
+                    <strong>Артикль:</strong> {dictionaryResult.article}
+                  </div>
+                )}
+                {dictionaryResult.forms && (
+                  <div className="dictionary-forms">
+                    <div><strong>Plural:</strong> {dictionaryResult.forms.plural || '—'}</div>
+                    <div><strong>Präteritum:</strong> {dictionaryResult.forms.praeteritum || '—'}</div>
+                    <div><strong>Perfekt:</strong> {dictionaryResult.forms.perfekt || '—'}</div>
+                    <div><strong>Konjunktiv I:</strong> {dictionaryResult.forms.konjunktiv1 || '—'}</div>
+                    <div><strong>Konjunktiv II:</strong> {dictionaryResult.forms.konjunktiv2 || '—'}</div>
+                  </div>
+                )}
+
+                {Array.isArray(dictionaryResult.prefixes) && dictionaryResult.prefixes.length > 0 && (
+                  <div className="dictionary-prefixes">
+                    <strong>Префиксы/варианты:</strong>
+                    <ul>
+                      {dictionaryResult.prefixes.map((item, index) => (
+                        <li key={`${item.variant}-${index}`}>
+                          <div><strong>{item.variant}:</strong> {item.translation_de || '—'}</div>
+                          {item.explanation && <div>{item.explanation}</div>}
+                          {item.example_de && <div><em>{item.example_de}</em></div>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {Array.isArray(dictionaryResult.usage_examples) && dictionaryResult.usage_examples.length > 0 && (
+                  <div className="dictionary-examples">
+                    <strong>Примеры:</strong>
+                    <ul>
+                      {dictionaryResult.usage_examples.map((example, index) => (
+                        <li key={`${index}-${example}`}>{example}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   // Если токена еще нет, показываем форму для входа
   // <form>: Это HTML-тег для сбора данных. Его особенность: он умеет реагировать на нажатие клавиши Enter на клавиатуре.
