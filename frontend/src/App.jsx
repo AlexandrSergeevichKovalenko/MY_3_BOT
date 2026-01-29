@@ -32,6 +32,7 @@ function App() {
   const [dictionaryResult, setDictionaryResult] = useState(null);
   const [dictionaryError, setDictionaryError] = useState('');
   const [dictionaryLoading, setDictionaryLoading] = useState(false);
+  const [dictionarySaved, setDictionarySaved] = useState('');
 
   // Состояние для хранения токена доступа. Изначально его нет.
   // Мы говорим React'у: "Создай ячейку памяти. Изначально положи туда null (пустоту)".
@@ -315,6 +316,7 @@ function App() {
     setDictionaryLoading(true);
     setDictionaryError('');
     setDictionaryResult(null);
+    setDictionarySaved('');
     try {
       const response = await fetch('/api/webapp/dictionary', {
         method: 'POST',
@@ -335,6 +337,46 @@ function App() {
       setDictionaryResult(data.item || null);
     } catch (error) {
       setDictionaryError(`Ошибка словаря: ${error.message}`);
+    } finally {
+      setDictionaryLoading(false);
+    }
+  };
+
+  const handleDictionarySave = async () => {
+    if (!initData) {
+      setDictionaryError('initData не найдено. Откройте Web App внутри Telegram.');
+      return;
+    }
+    if (!dictionaryResult) {
+      setDictionaryError('Сначала выполните перевод в словаре.');
+      return;
+    }
+    setDictionaryLoading(true);
+    setDictionaryError('');
+    setDictionarySaved('');
+    try {
+      const response = await fetch('/api/webapp/dictionary/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          word_ru: dictionaryResult.word_ru || dictionaryWord.trim(),
+          response_json: dictionaryResult,
+        }),
+      });
+      if (!response.ok) {
+        let message = await response.text();
+        try {
+          const data = JSON.parse(message);
+          message = data.error || message;
+        } catch (error) {
+          // ignore parsing errors
+        }
+        throw new Error(message);
+      }
+      setDictionarySaved('Добавлено в словарь ✅');
+    } catch (error) {
+      setDictionaryError(`Ошибка сохранения: ${error.message}`);
     } finally {
       setDictionaryLoading(false);
     }
@@ -449,12 +491,23 @@ function App() {
                   placeholder="Например: отказаться, уважение, несмотря на"
                 />
               </label>
-              <button className="secondary-button" type="submit" disabled={dictionaryLoading}>
-                {dictionaryLoading ? 'Ищем...' : 'Перевести'}
-              </button>
+              <div className="dictionary-actions">
+                <button className="secondary-button dictionary-button" type="submit" disabled={dictionaryLoading}>
+                  {dictionaryLoading ? 'Ищем...' : 'Перевести'}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={handleDictionarySave}
+                  disabled={dictionaryLoading || !dictionaryResult}
+                >
+                  Добавить в словарь
+                </button>
+              </div>
             </form>
 
             {dictionaryError && <div className="webapp-error">{dictionaryError}</div>}
+            {dictionarySaved && <div className="webapp-success">{dictionarySaved}</div>}
 
             {dictionaryResult && (
               <div className="webapp-dictionary-result">

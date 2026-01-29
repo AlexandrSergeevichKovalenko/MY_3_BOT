@@ -400,6 +400,22 @@ body {
   font-family: inherit;
 }
 
+.dictionary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.webapp-dictionary .dictionary-button {
+  color: #000;
+  font-weight: 700;
+  background: #ffe7c2;
+}
+
+.webapp-dictionary .dictionary-button:hover {
+  background: #ffd59a;
+}
+
 .webapp-dictionary-result {
   display: grid;
   gap: 12px;

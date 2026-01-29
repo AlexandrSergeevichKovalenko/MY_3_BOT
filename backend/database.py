@@ -253,18 +253,30 @@ def get_pending_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
     with get_db_connection_context() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
+                SELECT date
+                FROM bt_3_daily_sentences
+                WHERE user_id = %s
+                ORDER BY date DESC
+                LIMIT 1;
+            """, (user_id,))
+            latest = cursor.fetchone()
+            if not latest:
+                return []
+
+            latest_date = latest[0]
+            cursor.execute("""
                 SELECT ds.id_for_mistake_table, ds.sentence, ds.unique_id
                 FROM bt_3_daily_sentences ds
                 LEFT JOIN bt_3_translations tr
                     ON tr.user_id = ds.user_id
                     AND tr.sentence_id = ds.id
-                    AND tr.timestamp::date = CURRENT_DATE
+                    AND tr.timestamp::date = %s
                 WHERE ds.user_id = %s
-                  AND ds.date = CURRENT_DATE
+                  AND ds.date = %s
                   AND tr.id IS NULL
                 ORDER BY ds.unique_id ASC
                 LIMIT %s;
-            """, (user_id, limit))
+            """, (latest_date, user_id, latest_date, limit))
             rows = cursor.fetchall()
             return [
                 {
