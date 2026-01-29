@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y ffmpeg
 # Устанавливаем остальные зависимости из requirements.txt
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --progress-bar off --retries 10 --timeout 120 -r requirements.txt
 
 # Копируем исходный код
 COPY . .
