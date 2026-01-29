@@ -71,12 +71,13 @@ from livekit.api import AccessToken, VideoGrants
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-from backend.openai_manager import run_check_translation
+from backend.openai_manager import run_check_translation, run_dictionary_lookup
 from backend.database import (
     ensure_webapp_tables,
     get_pending_daily_sentences,
     get_webapp_translation_history,
     get_latest_daily_sentences,
+    save_webapp_dictionary_query,
     save_webapp_translation,
 )
 from backend.translation_workflow import (
@@ -325,6 +326,42 @@ def get_webapp_history():
 
     history = get_webapp_translation_history(user_id=user_id, limit=int(limit))
     return jsonify({"ok": True, "items": history})
+
+
+@app.route("/api/webapp/dictionary", methods=["POST"])
+def lookup_webapp_dictionary():
+    payload = request.get_json(silent=True) or {}
+    init_data = payload.get("initData")
+    word_ru = (payload.get("word") or "").strip()
+
+    if not init_data:
+        return jsonify({"error": "initData обязателен"}), 400
+    if not word_ru:
+        return jsonify({"error": "word обязателен"}), 400
+
+    if not _telegram_hash_is_valid(init_data):
+        return jsonify({"error": "initData не прошёл проверку"}), 401
+
+    parsed = _parse_telegram_init_data(init_data)
+    user_data = parsed.get("user") or {}
+    user_id = user_data.get("id")
+
+    if not user_id:
+        return jsonify({"error": "user_id отсутствует в initData"}), 400
+
+    try:
+        result = asyncio.run(run_dictionary_lookup(word_ru))
+    except Exception as exc:
+        return jsonify({"error": f"Ошибка запроса словаря: {exc}"}), 500
+
+    save_webapp_dictionary_query(
+        user_id=user_id,
+        word_ru=word_ru,
+        translation_de=result.get("translation_de"),
+        response_json=result,
+    )
+
+    return jsonify({"ok": True, "item": result})
 
 
 @app.route("/api/webapp/sentences", methods=["POST"])

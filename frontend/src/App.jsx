@@ -28,6 +28,10 @@ function App() {
   const [webappLoading, setWebappLoading] = useState(false);
   const [translationDrafts, setTranslationDrafts] = useState({});
   const [finishMessage, setFinishMessage] = useState('');
+  const [dictionaryWord, setDictionaryWord] = useState('');
+  const [dictionaryResult, setDictionaryResult] = useState(null);
+  const [dictionaryError, setDictionaryError] = useState('');
+  const [dictionaryLoading, setDictionaryLoading] = useState(false);
 
   // Состояние для хранения токена доступа. Изначально его нет.
   // Мы говорим React'у: "Создай ячейку памяти. Изначально положи туда null (пустоту)".
@@ -298,6 +302,44 @@ function App() {
     }
   };
 
+  const handleDictionaryLookup = async (event) => {
+    event.preventDefault();
+    if (!initData) {
+      setDictionaryError('initData не найдено. Откройте Web App внутри Telegram.');
+      return;
+    }
+    if (!dictionaryWord.trim()) {
+      setDictionaryError('Введите слово или фразу для словаря.');
+      return;
+    }
+    setDictionaryLoading(true);
+    setDictionaryError('');
+    setDictionaryResult(null);
+    try {
+      const response = await fetch('/api/webapp/dictionary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, word: dictionaryWord.trim() }),
+      });
+      if (!response.ok) {
+        let message = await response.text();
+        try {
+          const data = JSON.parse(message);
+          message = data.error || message;
+        } catch (error) {
+          // ignore parsing errors
+        }
+        throw new Error(message);
+      }
+      const data = await response.json();
+      setDictionaryResult(data.item || null);
+    } catch (error) {
+      setDictionaryError(`Ошибка словаря: ${error.message}`);
+    } finally {
+      setDictionaryLoading(false);
+    }
+  };
+
   if (isWebAppMode) {
     return (
       <div className="webapp-page">
@@ -394,6 +436,77 @@ function App() {
               </div>
             </section>
           )}
+
+          <section className="webapp-dictionary">
+            <h3>Словарь</h3>
+            <form className="webapp-dictionary-form" onSubmit={handleDictionaryLookup}>
+              <label className="webapp-field">
+                <span>Слово или фраза (русский)</span>
+                <input
+                  type="text"
+                  value={dictionaryWord}
+                  onChange={(event) => setDictionaryWord(event.target.value)}
+                  placeholder="Например: отказаться, уважение, несмотря на"
+                />
+              </label>
+              <button className="secondary-button" type="submit" disabled={dictionaryLoading}>
+                {dictionaryLoading ? 'Ищем...' : 'Перевести'}
+              </button>
+            </form>
+
+            {dictionaryError && <div className="webapp-error">{dictionaryError}</div>}
+
+            {dictionaryResult && (
+              <div className="webapp-dictionary-result">
+                <div className="dictionary-row">
+                  <strong>Перевод:</strong> {dictionaryResult.translation_de || '—'}
+                </div>
+                <div className="dictionary-row">
+                  <strong>Часть речи:</strong> {dictionaryResult.part_of_speech || '—'}
+                </div>
+                {dictionaryResult.article && (
+                  <div className="dictionary-row">
+                    <strong>Артикль:</strong> {dictionaryResult.article}
+                  </div>
+                )}
+                {dictionaryResult.forms && (
+                  <div className="dictionary-forms">
+                    <div><strong>Plural:</strong> {dictionaryResult.forms.plural || '—'}</div>
+                    <div><strong>Präteritum:</strong> {dictionaryResult.forms.praeteritum || '—'}</div>
+                    <div><strong>Perfekt:</strong> {dictionaryResult.forms.perfekt || '—'}</div>
+                    <div><strong>Konjunktiv I:</strong> {dictionaryResult.forms.konjunktiv1 || '—'}</div>
+                    <div><strong>Konjunktiv II:</strong> {dictionaryResult.forms.konjunktiv2 || '—'}</div>
+                  </div>
+                )}
+
+                {Array.isArray(dictionaryResult.prefixes) && dictionaryResult.prefixes.length > 0 && (
+                  <div className="dictionary-prefixes">
+                    <strong>Префиксы/варианты:</strong>
+                    <ul>
+                      {dictionaryResult.prefixes.map((item, index) => (
+                        <li key={`${item.variant}-${index}`}>
+                          <div><strong>{item.variant}:</strong> {item.translation_de || '—'}</div>
+                          {item.explanation && <div>{item.explanation}</div>}
+                          {item.example_de && <div><em>{item.example_de}</em></div>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {Array.isArray(dictionaryResult.usage_examples) && dictionaryResult.usage_examples.length > 0 && (
+                  <div className="dictionary-examples">
+                    <strong>Примеры:</strong>
+                    <ul>
+                      {dictionaryResult.usage_examples.map((example, index) => (
+                        <li key={`${index}-${example}`}>{example}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
         </div>
       </div>
     );

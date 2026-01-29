@@ -120,6 +120,16 @@ def ensure_webapp_tables() -> None:
                     true
                 );
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bt_3_webapp_dictionary_queries (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    word_ru TEXT NOT NULL,
+                    translation_de TEXT,
+                    response_json JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
 
 
 def save_webapp_translation(
@@ -180,6 +190,30 @@ def get_webapp_translation_history(user_id: int, limit: int = 20) -> list[dict]:
                 }
                 for row in rows
             ]
+
+
+def save_webapp_dictionary_query(
+    user_id: int,
+    word_ru: str,
+    translation_de: str | None,
+    response_json: dict,
+) -> None:
+    with get_db_connection_context() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO bt_3_webapp_dictionary_queries (
+                    user_id,
+                    word_ru,
+                    translation_de,
+                    response_json
+                )
+                VALUES (%s, %s, %s, %s);
+            """, (
+                user_id,
+                word_ru,
+                translation_de,
+                json.dumps(response_json, ensure_ascii=False),
+            ))
 
 
 def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:

@@ -378,6 +378,57 @@ body {
   color: #3c332b;
 }
 
+.webapp-dictionary {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 16px 32px rgba(65, 52, 41, 0.12);
+  display: grid;
+  gap: 16px;
+}
+
+.webapp-dictionary-form {
+  display: grid;
+  gap: 12px;
+}
+
+.webapp-dictionary-form input {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(60, 51, 43, 0.2);
+  font-size: 15px;
+  font-family: inherit;
+}
+
+.webapp-dictionary-result {
+  display: grid;
+  gap: 12px;
+  background: #fffaf2;
+  border-radius: 14px;
+  padding: 14px;
+  border: 1px solid rgba(255, 185, 115, 0.4);
+}
+
+.dictionary-row {
+  font-size: 14px;
+}
+
+.dictionary-forms,
+.dictionary-prefixes,
+.dictionary-examples {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.dictionary-prefixes ul,
+.dictionary-examples ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
 .webapp-history {
   display: grid;
   gap: 12px;
