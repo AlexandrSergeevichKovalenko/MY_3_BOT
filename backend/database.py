@@ -216,28 +216,35 @@ def save_webapp_dictionary_query(
             ))
 
 
+def _get_latest_session_id(cursor, user_id: int) -> str | None:
+    cursor.execute(
+        """
+        SELECT session_id
+        FROM bt_3_daily_sentences
+        WHERE user_id = %s
+        ORDER BY id DESC
+        LIMIT 1;
+        """,
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
 def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
     with get_db_connection_context() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT date
-                FROM bt_3_daily_sentences
-                WHERE user_id = %s
-                ORDER BY date DESC
-                LIMIT 1;
-            """, (user_id,))
-            latest = cursor.fetchone()
-            if not latest:
+            latest_session_id = _get_latest_session_id(cursor, user_id)
+            if not latest_session_id:
                 return []
 
-            latest_date = latest[0]
             cursor.execute("""
                 SELECT id_for_mistake_table, sentence, unique_id
                 FROM bt_3_daily_sentences
-                WHERE user_id = %s AND date = %s
+                WHERE user_id = %s AND session_id = %s
                 ORDER BY unique_id ASC
                 LIMIT %s;
-            """, (user_id, latest_date, limit))
+            """, (user_id, latest_session_id, limit))
             rows = cursor.fetchall()
             return [
                 {
@@ -252,31 +259,23 @@ def get_latest_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
 def get_pending_daily_sentences(user_id: int, limit: int = 7) -> list[dict]:
     with get_db_connection_context() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT date
-                FROM bt_3_daily_sentences
-                WHERE user_id = %s
-                ORDER BY date DESC
-                LIMIT 1;
-            """, (user_id,))
-            latest = cursor.fetchone()
-            if not latest:
+            latest_session_id = _get_latest_session_id(cursor, user_id)
+            if not latest_session_id:
                 return []
 
-            latest_date = latest[0]
             cursor.execute("""
                 SELECT ds.id_for_mistake_table, ds.sentence, ds.unique_id
                 FROM bt_3_daily_sentences ds
                 LEFT JOIN bt_3_translations tr
                     ON tr.user_id = ds.user_id
                     AND tr.sentence_id = ds.id
-                    AND tr.timestamp::date = %s
+                    AND tr.session_id = %s
                 WHERE ds.user_id = %s
-                  AND ds.date = %s
+                  AND ds.session_id = %s
                   AND tr.id IS NULL
                 ORDER BY ds.unique_id ASC
                 LIMIT %s;
-            """, (latest_date, user_id, latest_date, limit))
+            """, (latest_session_id, user_id, latest_session_id, limit))
             rows = cursor.fetchall()
             return [
                 {

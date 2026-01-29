@@ -211,11 +211,26 @@ async def check_user_translation_webapp(
     try:
         cursor.execute(
             """
-            SELECT unique_id, id_for_mistake_table, id, sentence, session_id
+            SELECT session_id
             FROM bt_3_daily_sentences
-            WHERE date = CURRENT_DATE AND user_id = %s;
+            WHERE user_id = %s
+            ORDER BY id DESC
+            LIMIT 1;
             """,
             (user_id,),
+        )
+        latest_session = cursor.fetchone()
+        if not latest_session:
+            return []
+
+        latest_session_id = latest_session[0]
+        cursor.execute(
+            """
+            SELECT unique_id, id_for_mistake_table, id, sentence, session_id
+            FROM bt_3_daily_sentences
+            WHERE session_id = %s AND user_id = %s;
+            """,
+            (latest_session_id, user_id),
         )
         allowed_rows = cursor.fetchall()
         allowed_by_mistake_id = {

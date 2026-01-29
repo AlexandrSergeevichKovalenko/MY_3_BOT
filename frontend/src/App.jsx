@@ -496,7 +496,7 @@ function App() {
                   {dictionaryLoading ? 'Ищем...' : 'Перевести'}
                 </button>
                 <button
-                  className="secondary-button"
+                  className="secondary-button dictionary-save-button"
                   type="button"
                   onClick={handleDictionarySave}
                   disabled={dictionaryLoading || !dictionaryResult}

@@ -406,6 +406,13 @@ body {
   gap: 10px;
 }
 
+.webapp-dictionary .dictionary-actions .secondary-button {
+  color: #000;
+  font-weight: 700;
+  border: 2px solid #1f1f1f;
+  background: #fff3dd;
+}
+
 .webapp-dictionary .dictionary-button {
   color: #000;
   font-weight: 700;
@@ -414,6 +421,10 @@ body {
 
 .webapp-dictionary .dictionary-button:hover {
   background: #ffd59a;
+}
+
+.webapp-dictionary .dictionary-save-button:hover {
+  background: #ffe2b3;
 }
 
 .webapp-dictionary-result {
